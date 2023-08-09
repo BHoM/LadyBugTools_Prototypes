@@ -105,8 +105,16 @@
     </Reference>
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Python\example\" />
+  </ItemGroup>
+
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <Exec Command="xcopy &quot;$(TargetDir)$(TargetFileName)&quot; &quot;C:\\ProgramData\\BHoM\\Assemblies&quot; /Y" />
+  </Target>
+
+  <Target Name="PreBuild" BeforeTargets="PreBuildEvent">
+    <Exec Command="if exist &quot;C:\ProgramData\BHoM\Extensions\PythonCode\LadybugTools_Toolkit\src\ladybugtools_toolkit\prototypes&quot; rmdir &quot;C:\ProgramData\BHoM\Extensions\PythonCode\LadybugTools_Toolkit\src\ladybugtools_toolkit\prototypes&quot; /S /Q&#xD;&#xA;&#xD;&#xA;mkdir &quot;C:\ProgramData\BHoM\Extensions\PythonCode\LadybugTools_Toolkit\src\ladybugtools_toolkit\prototypes&quot;&#xD;&#xA;&#xD;&#xA;robocopy &quot;$(ProjectDir)Python&quot; &quot;C:\ProgramData\BHoM\Extensions\PythonCode\LadybugTools_Toolkit\src\ladybugtools_toolkit\prototypes&quot; /mir /xf &quot;*.pyc&quot; &quot;*.ipynb&quot; /xd &quot;__*__&quot; &quot;.*&quot; &gt; output.log&#xD;&#xA;&#xD;&#xA;del output.log" />
   </Target>
 
 </Project>
