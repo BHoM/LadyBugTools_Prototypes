@@ -2,7 +2,6 @@ from typing import Tuple
 from warnings import warn
 
 import numpy as np
-from honeybee_energy.construction.opaque import OpaqueConstruction
 from scipy.interpolate import interp1d
 
 
@@ -141,7 +140,9 @@ def conduction_gain_interface_area(
     soil_temperature: float,
     water_temperature: float,
 ) -> float:
-    """The total conduction through the ground interface of the pool.
+    """The total conduction through the ground interface of the pool, from the
+    pool to the soil (-Ve, heat lost) or from the soil to the pool (+Ve, heat
+    gained).
 
     Source:
         Eq 12 from "Nouaneque, H.V., et al, (2011), Energy model validation of
@@ -160,8 +161,8 @@ def conduction_gain_interface_area(
     """
 
     interface_area = ground_interface_area_prism(surface_area, average_depth)
-
-    return interface_u_value * interface_area * (water_temperature - soil_temperature)
+    gain = interface_u_value * interface_area * (water_temperature - soil_temperature)
+    return np.where(water_temperature > soil_temperature, -gain, gain)
 
 
 def conduction_gain_shape_factor(
@@ -201,10 +202,11 @@ def conduction_gain_shape_factor(
     characteristic_length = pool_characteristic_length(surface_area)
     shape_factor_surface_area = (2 * (D**2)) + (4 * D * d)
 
-    return (
+    gain = (
         (1 / 2 * characteristic_length)
         * dimensionless_conduction_heat_rate
         * soil_conductivity
         * (shape_factor_surface_area / interface_area)
         * (soil_temperature - water_temperature)
     )  # W
+    return np.where(water_temperature > soil_temperature, gain, -gain)

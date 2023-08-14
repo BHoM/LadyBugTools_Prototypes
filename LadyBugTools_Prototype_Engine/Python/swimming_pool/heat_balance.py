@@ -64,6 +64,14 @@ def heat_balance(
     if water_supply_temperature is None:
         water_supply_temperature = epw_df["Ground Temperature (C)"]
 
+    if isinstance(water_surface_area, (pd.Series, np.ndarray)):
+        if len(water_surface_area) != len(epw_df):
+            raise ValueError(
+                "The length of the water surface area profile must match the length of the EPW file."
+            )
+    else:
+        water_surface_area = np.ones(len(epw_df)) * water_surface_area
+
     evaporation_rate = evaporation_rate_penman(epw)  # l/m2/hour
     evaporation_rate_l_hour = evaporation_rate * water_surface_area  # l/hour
     water_loss_m3_hour = evaporation_rate_l_hour / 1000  # m3/hour

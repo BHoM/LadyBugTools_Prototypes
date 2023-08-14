@@ -16,10 +16,10 @@ def longwave_gain(
         float: Longwave gain from the sky on a surface in W.
     """
 
-    STEFAN_BOLTZMANN = 5.670374419e-8  # Stefan-Boltzmann constant in W/m2K4
+    stefan_boltzmann = 5.670374419e-8  # Stefan-Boltzmann constant in W/m2K4
 
     return (
-        STEFAN_BOLTZMANN
+        stefan_boltzmann
         * water_emissivity
         * (((sky_temperature + 273.15) ** 4) - ((water_temperature + 273.15) ** 4))
     ) * surface_area  # W
