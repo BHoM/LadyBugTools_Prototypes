@@ -1,25 +1,28 @@
 import json
 import os
+import os.path
 import pathlib
 from pathlib import Path
+import sys
+from PIL import Image
+import zipfile
+import io
+import streamlit as st
+
 from typing import Dict
+from collections import defaultdict
 import matplotlib.pyplot as plt
 from matplotlib.patches import PathPatch
 from matplotlib.collections import PatchCollection
-from matplotlib import cm
-from matplotlib.cm import get_cmap, register_cmap
 import matplotlib as mpl
 import numpy as np
+import pandas as pd
+
 import program as pg
 import construction_set as cs
-import io
-from collections import defaultdict
-import plotly.express as px
 import daylight_plotting as DP
-from PIL import Image
-import zipfile
-import sys
-import streamlit as st
+from geometry import create_room, add_glazing
+
 
 from honeybee.boundarycondition import Outdoors
 from honeybee.face import Face
@@ -43,25 +46,20 @@ from honeybee_energy.simulation.runperiod import RunPeriod
 from honeybee_radiance.sensorgrid import SensorGrid
 from honeybee_vtk.model import Model as VTKModel, SensorGridOptions, DisplayMode
 from honeybee_vtk.legend_parameter import ColorSets
-from honeybee_vtk.camera import Camera
-from honeybee_vtk.scene import Scene 
 from ladybug.analysisperiod import AnalysisPeriod
 from ladybug.epw import EPW
 from ladybug.wea import Wea
-from ladybug.datacollection import HourlyContinuousCollection, MonthlyCollection
-from ladybug_charts.to_figure import *
 from ladybug.color import Color, ColorRange, Colorset
 from ladybug.datatype.energy import Energy
 from ladybug.dt import Date
-from ladybug.sql import SQLiteResult,ZoneSize
 from lbt_recipes.recipe import Recipe
 from lbt_recipes.settings import RecipeSettings
 from pollination_streamlit_viewer import viewer
 
-import os.path
 
 dirname = os.path.dirname(__file__)
 path = os.path.join(dirname, 'temp')
+os.makedirs(path, exist_ok=True)
 
 st.set_page_config(page_title='Box Model', layout='wide')
 
@@ -107,7 +105,6 @@ with st.sidebar.form('box-model-geometry'):
         for face in room.faces:
             face.boundary_condition = Adiabatic()
 
-
         # Assign first wall (north) with outdoor boundary condition and glazing
         room.faces[1].boundary_condition = Outdoors()
         room.faces[1].apertures_by_ratio_rectangle(
@@ -147,6 +144,7 @@ with st.sidebar.form('box-model-energy'):
         room=st.session_state.room #adding the model from the current session
         epw_file= st.session_state.epw_file
         simulation_folder= os.path.join(path, 'simulation')
+        os.makedirs(simulation_folder, exist_ok=True)
 
         #Apply construction set from construction_set.py
         bm_construct_set = cs.BoxModelFabricProperties(epw = epw_obj).construction_set
@@ -259,8 +257,9 @@ with st.sidebar.form('box-model-daylight'):
 
         project_folder = recipe.run(run_settings, radiance_check=True, silent=True)
      
-        output_folder = path
-        results_folder= output_folder + '/annual_daylight/metrics'
+   
+        results_folder= path + '/annual_daylight/metrics'
+        os.makedirs(results_folder, exist_ok=True)
         
         hb_model= st.session_state.model
         model=VTKModel(hb_model=hb_model, grid_options=SensorGridOptions.Mesh)
@@ -319,7 +318,7 @@ if 'monthly_energy' in st.session_state:
 
     with col1:
         #Displaying metrics
-        metrics_df = pd.DataFrame.from_dict(outputs,orient='index').round(3)
+        metrics_df = pd.DataFrame.from_dict(outputs,orient='index').round(2)
         metrics_df.columns = [' ']
         st.dataframe(metrics_df, width=500)
 
@@ -347,7 +346,7 @@ if 'monthly_energy' in st.session_state:
         # Create a stacked bar plot
         fig, ax = plt.subplots(figsize=(10, 6))
 
-        df_melted.pivot_table(index='Month',columns='Load',values='Value', aggfunc='sum').plot(kind='bar', stacked=True, ax=ax, colormap=cmap, width=0.85)
+        df_melted.pivot_table(index='Month',columns='Load',values='Value', aggfunc='sum').plot(kind='bar', stacked=True, ax=ax, colormap=cmap, width=0.85, edgecolor= "black")
         ax.set_xlabel('')
         ax.set_ylabel('Energy (kWh)')  
         ax.set_title('Monthly Load Balance')
