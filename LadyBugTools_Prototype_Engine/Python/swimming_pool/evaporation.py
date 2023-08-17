@@ -202,7 +202,7 @@ def evaporation_rate_penman(epw: EPW) -> pd.Series:
         _dbt.groupby([_dbt.index.dayofyear, _dbt.index.hour]).sum().unstack().T
         / _dbt.groupby([_dbt.index.dayofyear]).sum()
     )
-    overall_profile = np.average([rh_profile, dbt_profile], axis=0, weights=[2, 1])
+    overall_profile = np.average([rh_profile, dbt_profile], axis=0, weights=[1, 1])
     penman_openwater_hourly = pd.Series(
         (pd.DataFrame(overall_profile) * penman_openwater_daily.values)
         .unstack()
@@ -238,8 +238,8 @@ def evaporation_gain_bensmallwood(surface_area: float, epw: EPW) -> float:
     )
     water_density = 1000  # kg/m3
     water_mass = water_loss_m3_hour * water_density  # kg
-    water_loss_kg_s = water_mass / 60 * 60  # kg/s
-    return -(water_loss_kg_s * enthalpy_vaporisation_water)  # W
+    water_loss_kg_s = water_mass / (60 * 60)  # kg/s
+    return -(water_loss_kg_s * enthalpy_vaporisation_water)  # kW
 
 
 def evaporation_gain_woolley(
@@ -299,15 +299,15 @@ def evaporation_gain_mancic(surface_area: float, epw: EPW) -> float:
             Evaporation gain in W.
     """
 
-    evaporation_rate = evaporation_rate_penman(epw)  # l/m2/hour
+    evaporation_rate = evaporation_rate_penman(epw)  # l/m2/hour or mm/hour
     evaporation_rate_l_hour = evaporation_rate * surface_area  # l/hour
     water_loss_m3_hour = evaporation_rate_l_hour / 1000  # m3/hour
 
-    latent_heat_of_evaporation = 2260.000  # J/kg  # TODO - shouldnt this be J/kg??????
+    latent_heat_of_evaporation = 2260.000  # kJ/kg
     water_density = 1000  # kg/m3
     water_mass = water_loss_m3_hour * water_density  # kg/hour
-    water_loss_kg_s = water_mass / 60 * 60  # kg/s
-    return -water_loss_kg_s * latent_heat_of_evaporation  # ??
+    water_loss_kg_s = water_mass / (60 * 60)  # kg/s
+    return -water_loss_kg_s * latent_heat_of_evaporation * 1000  # W
 
 
 def evaporation_gain_jamesramsden(surface_area: float, epw: EPW) -> float:
@@ -333,5 +333,5 @@ def evaporation_gain_jamesramsden(surface_area: float, epw: EPW) -> float:
     heat_of_vaporisation = 2454.000  # J/kg, assuming room temperature water # TODO - shouldnt this be J/kg??????
     water_density = 1000  # kg/m3
     water_mass = water_loss_m3_hour * water_density  # kg
-    water_loss_kg_s = water_mass / 60 * 60  # kg/s
-    return -water_loss_kg_s * heat_of_vaporisation  # W
+    water_loss_kg_s = water_mass / (60 * 60)  # kg/s
+    return -water_loss_kg_s * heat_of_vaporisation  # kW
