@@ -18,10 +18,7 @@ import plotly.express as px
 import daylight_plotting as DP
 from PIL import Image
 import zipfile
-
-#colormap?
 import sys
-
 import streamlit as st
 
 from honeybee.boundarycondition import Outdoors
@@ -61,11 +58,15 @@ from lbt_recipes.recipe import Recipe
 from lbt_recipes.settings import RecipeSettings
 from pollination_streamlit_viewer import viewer
 
-path = r"C:\Users\wchen\Desktop\BoxModel\Streamlit\temp"
+import os.path
+
+dirname = os.path.dirname(__file__)
+path = os.path.join(dirname, 'temp')
 
 st.set_page_config(page_title='Box Model', layout='wide')
 
 st.header('Box Model App')
+st.text(path)
 
 st.subheader('Weather File')
 uploaded_epw = st.file_uploader(label="Drag and drop .epw file here",
@@ -145,7 +146,7 @@ with st.sidebar.form('box-model-energy'):
     if energy_submit_button:
         room=st.session_state.room #adding the model from the current session
         epw_file= st.session_state.epw_file
-        simulation_folder= r"C:\Users\wchen\Desktop\BoxModel\Streamlit\temp\simulation"
+        simulation_folder= os.path.join(path, 'simulation')
 
         #Apply construction set from construction_set.py
         bm_construct_set = cs.BoxModelFabricProperties(epw = epw_obj).construction_set
@@ -194,7 +195,7 @@ with st.sidebar.form('box-model-energy'):
         sql, zsz, rdd, html, err = run_idf(idf_file_path = idf, epw_file_path = epw_file)
 
         #load balance
-        sql_path = r'C:\Users\wchen\Desktop\BoxModel\Streamlit\temp\simulation\run\eplusout.sql'
+        sql_path = os.path.join(simulation_folder, 'run\eplusout.sql')
         load_balance = LoadBalance.from_sql_file(model=model, sql_path=sql_path)
         norm_bal_stor = load_balance.load_balance_terms(True,True)
         #term_names = [term.header.metadata['type'] for term in norm_bal_stor] 
@@ -367,7 +368,8 @@ if 'annual_metrics' in st.session_state:
     show_legend = st.checkbox("Show Legend", value=False)
 
     # Specify the output folder where you want to save the images
-    output_image_folder = r"C:\Users\wchen\Desktop\BoxModel\Streamlit\temp\annual_daylight\results"
+    output_image_folder = os.path.join(path, 'annual_daylight//results')
+    st.text(output_image_folder)
 
     col1, col2, col3, col4, col5 = st.columns(5)
 
