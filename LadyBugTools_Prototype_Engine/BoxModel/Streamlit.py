@@ -1,71 +1,47 @@
 import json
 import os
-import os.path
-import pathlib
-from pathlib import Path
 import sys
+from pathlib import Path
 from PIL import Image
-import zipfile
-import io
 import streamlit as st
 
-from typing import Dict
-from collections import defaultdict
 import matplotlib.pyplot as plt
-from matplotlib.patches import PathPatch
 from matplotlib.collections import PatchCollection
 import matplotlib as mpl
-import numpy as np
-import pandas as pd
 
-import program as pg
-import construction_set as cs
-import daylight_plotting as DP
-from geometry import create_room, add_glazing
-
-
-from honeybee.boundarycondition import Outdoors
-from honeybee.face import Face
 from honeybee.facetype import Floor, Wall
 from honeybee.model import Model
-from honeybee.room import Room
-from honeybee_energy.boundarycondition import Adiabatic
-from honeybee_energy.constructionset import ConstructionSet, OpaqueConstruction
 from honeybee_energy.programtype import ProgramType
-from honeybee_energy.lib.constructionsets import construction_set_by_identifier
 from honeybee_energy.lib.programtypes import program_type_by_identifier
 from honeybee_energy.properties.model import ModelEnergyProperties
-from honeybee_energy.simulation.output import SimulationOutput
-from honeybee_energy.simulation.parameter import SimulationParameter
 from honeybee_energy.hvac.idealair import IdealAirSystem
-from honeybee_energy.run import to_openstudio_osw, run_osw, run_idf
-from honeybee_energy.result.osw import OSW
-from honeybee_energy.result.loadbalance import LoadBalance
-from honeybee_energy.result.eui import eui_from_sql
 from honeybee_energy.simulation.runperiod import RunPeriod
 from honeybee_radiance.sensorgrid import SensorGrid
 from honeybee_vtk.model import Model as VTKModel, SensorGridOptions, DisplayMode
 from honeybee_vtk.legend_parameter import ColorSets
-from ladybug.analysisperiod import AnalysisPeriod
 from ladybug.epw import EPW
 from ladybug.wea import Wea
 from ladybug.color import Color, ColorRange, Colorset
 from ladybug.datatype.energy import Energy
-from ladybug.dt import Date
 from lbt_recipes.recipe import Recipe
 from lbt_recipes.settings import RecipeSettings
 from pollination_streamlit_viewer import viewer
 
+from file_utils import make_folder_if_not_exist
+from geometry.geom import BoxModelGlazing, BoxModelModel, BoxModelRoom
+from construction.construction_set import BoxModelFabricProperties
+from simulation.energy_sim_setup import SimulationOutputSetup, SimulationParameterSetup
+from simulation.energy_sim_run import RunEnergySimulation
+from results.energy_results import EnergySimResults
+from results.energy_plotting import display_metrics_as_df, LoadBalanceBarPlot
+from results.daylight_plotting import build_custom_continuous_cmap, vertices_from_grids, add_starting_vertices_to_end, vertices_to_patches, flatten, generate_zip 
+from program.program import PeopleLoad, LightingLoad, ElectricEquipmentLoad, InfiltrationLoad, SetpointProgram
 
 dirname = os.path.dirname(__file__)
-path = os.path.join(dirname, 'temp')
-os.makedirs(path, exist_ok=True)
+path = make_folder_if_not_exist(dirname,'temp')
 
 st.set_page_config(page_title='Box Model', layout='wide')
-
 st.header('Box Model App')
-st.text(path)
-
 st.subheader('Weather File')
 uploaded_epw = st.file_uploader(label="Drag and drop .epw file here",
                     type = ".epw",
@@ -94,31 +70,21 @@ with st.sidebar.form('box-model-geometry'):
         label='Generate Geometry')
 
     if geometry_submit_button:
-        room_width = bay_width * bay_count
+        glazing_properties= BoxModelGlazing(glazing_ratio=glazing_ratio,
+                                            sill_height=sill_height,
+                                            window_height=window_height,
+                                            bay_width=bay_width)
+        room= BoxModelRoom(bay_width=bay_width,
+                           bay_count=bay_count,
+                           depth= room_depth,
+                           height= room_height,
+                           glazing_properties= glazing_properties).get_honeybee_room()
         
-        room = Room.from_box(identifier='Test',
-                      width= room_width,
-                      depth = room_depth,
-                      height= room_height)
-        
-        # Set all faces to adiabatic by default
-        for face in room.faces:
-            face.boundary_condition = Adiabatic()
+        model=BoxModelModel(room).generate_honeybee_model()
+        vtk_path = Path(VTKModel(model).to_vtkjs(folder=path, name=model.identifier))
 
-        # Assign first wall (north) with outdoor boundary condition and glazing
-        room.faces[1].boundary_condition = Outdoors()
-        room.faces[1].apertures_by_ratio_rectangle(
-            ratio = glazing_ratio,
-            aperture_height = window_height,
-            sill_height = sill_height,
-            horizontal_separation = bay_width)
-        
-        model = Model(identifier='Test',
-                      rooms = [room])
-        
         st.session_state.model = model
         st.session_state.room = room
-        vtk_path = Path(VTKModel(model).to_vtkjs(folder=path, name=model.identifier))
 
         vtkjs_name = f'{model.identifier}_vtkjs'
         st.session_state.content = vtk_path.read_bytes()
@@ -141,22 +107,22 @@ with st.sidebar.form('box-model-energy'):
     st.caption('Requires geometry to be generated and EPW to be uploaded')
 
     if energy_submit_button:
-        room=st.session_state.room #adding the model from the current session
+        room=st.session_state.room
+        model= st.session_state.model
         epw_file= st.session_state.epw_file
-        simulation_folder= os.path.join(path, 'simulation')
-        os.makedirs(simulation_folder, exist_ok=True)
 
+        simulation_folder= make_folder_if_not_exist(path, 'simulation')
         #Apply construction set from construction_set.py
-        bm_construct_set = cs.BoxModelFabricProperties(epw = epw_obj).construction_set
+        bm_construct_set = BoxModelFabricProperties(epw = epw_obj).construction_set
         room.properties.energy.construction_set = bm_construct_set
 
         # Apply program type from program.py
         bm_program_type = ProgramType(identifier='BM_program_type',
-                                people = pg.PeopleLoad().load,
-                                lighting= pg.LightingLoad().load,
-                                electric_equipment= pg.ElectricEquipmentLoad().load,
-                                infiltration= pg.InfiltrationLoad(hb_room=room, ach = 0.1).load,
-                                setpoint= pg.SetpointProgram().setpoint,
+                                people = PeopleLoad().load,
+                                lighting= LightingLoad().load,
+                                electric_equipment= ElectricEquipmentLoad().load,
+                                infiltration= InfiltrationLoad(hb_room=room, ach = 0.1).load,
+                                setpoint= SetpointProgram().setpoint,
                                 ventilation= None
                                 )
         room.properties.energy.program_type = bm_program_type
@@ -164,56 +130,29 @@ with st.sidebar.form('box-model-energy'):
         #ideal air system
         ideal_air= IdealAirSystem(identifier='Idealair', economizer_type='NoEconomizer') #HVAC system params
         room.properties.energy.hvac = ideal_air #setting the HVAC system to defined params
-
-        model = Model(identifier='Test',
-                      rooms = [room])
         
-        #Sim parameters
-        sim_output= SimulationOutput()
-        sim_output.add_energy_balance_variables(load_type='Sensible')
-        sim_output.add_comfort_metrics()
-        sim_output.add_hvac_energy_use()
-        sim_output.add_surface_temperature()
-        sim_output.add_glazing_solar()
-        sim_par = SimulationParameter(output=sim_output) #creates a simulation parameter object with EnergyPlus simulation settings#
+        #set up simulation output+ params
+        sim_output=SimulationOutputSetup().return_sim_output()
+        sim_setup= SimulationParameterSetup(sim_output=sim_output, room=room,
+                                            model=model, simulation_folder=simulation_folder, epw_obj=epw_obj)        
+        sim_setup.add_autocalculated_design_days()
+        hbjson_path= sim_setup.model_to_json()
+        sim_par_path= sim_setup.sim_par_to_json()
 
-        # add autocalculated design days
-        des_days = [epw_obj.approximate_design_day('WinterDesignDay'),
-                    epw_obj.approximate_design_day('SummerDesignDay')]
-        sim_par.sizing_parameter.design_days = des_days
+        #run energy simulation 
+        energy_sim=RunEnergySimulation(simulation_folder= simulation_folder, hbjson_path=hbjson_path,
+                                     sim_par_path= sim_par_path, epw_file= epw_file)
+        
+        sql_path= energy_sim.run_simulation()
+        load_balance= energy_sim.calculate_load_balance(model, sql_path=sql_path)
+        
+        #processing results
+        energy_sim_processing= EnergySimResults(load_balance=load_balance)
+        metrics= energy_sim_processing.metric_dictionary()
+        monthly_balance= energy_sim_processing.monthy_balance()
 
-        hbjson_path = model.to_hbjson(folder=simulation_folder)
-        sim_par_json = sim_par.to_dict()
-        sim_par_path = os.path.join(simulation_folder, 'sim_par.json')
-        json.dump(sim_par_json, open(sim_par_path, 'w'))
-       
-        #running the simulation
-        osw= to_openstudio_osw(osw_directory=simulation_folder, model_path=hbjson_path,sim_par_json_path=sim_par_path, epw_file = epw_file) 
-        osw, idf =run_osw(osw)
-        sql, zsz, rdd, html, err = run_idf(idf_file_path = idf, epw_file_path = epw_file)
-
-        #load balance
-        sql_path = os.path.join(simulation_folder, 'run\eplusout.sql')
-        load_balance = LoadBalance.from_sql_file(model=model, sql_path=sql_path)
-        norm_bal_stor = load_balance.load_balance_terms(True,True)
-        #term_names = [term.header.metadata['type'] for term in norm_bal_stor] 
-        #st.text(term_names)
-
-        #metrics
-        outputs = {
-        'annual solar gain (kWh/m2)': norm_bal_stor[1].to_unit('kWh/m2').total,
-        'peak solar gain (Wh/m2)': norm_bal_stor[1].to_unit('Wh/m2').max,
-        'annual heating emand (kWh/m2)': norm_bal_stor[0].to_unit('kWh/m2').total,
-        'peak heating demand(Wh/m2)': norm_bal_stor[0].to_unit('Wh/m2').max,
-        'annual cooling demand (kWh/m2)': -(norm_bal_stor[8].to_unit('kWh/m2').total),
-        'peak cooling demand (Wh/m2)': -(norm_bal_stor[8].to_unit('Wh/m2').min),
-        'annual lighting energy (kWh/m2)': norm_bal_stor[3].to_unit('kWh/m2').total,
-        'annual external conduction (kWh/m2)': -(norm_bal_stor[6].to_unit('kWh/m2').total + norm_bal_stor[7].to_unit('kWh/m2').total)
-        }
-        st.session_state.outputs=outputs
-
-        monthly_energy = [term.total_monthly() for term in norm_bal_stor]
-        st.session_state.monthly_energy = monthly_energy
+        st.session_state.metrics=metrics
+        st.session_state.monthly_balance= monthly_balance
         st.success("Successful Energy Simmulation")
 
             
@@ -253,13 +192,11 @@ with st.sidebar.form('box-model-daylight'):
         recipe.input_value_by_name('grid-filter', None)
         recipe.input_value_by_name('radiance-parameters', None)
 
-        run_settings = RecipeSettings(folder = path, reload_old=True)
+        run_settings = RecipeSettings(folder = path, reload_old=False)
 
         project_folder = recipe.run(run_settings, radiance_check=True, silent=True)
      
-   
-        results_folder= path + '/annual_daylight/metrics'
-        os.makedirs(results_folder, exist_ok=True)
+        results_folder= make_folder_if_not_exist(os.path.join(path,"annual_daylight"),'metrics')
         
         hb_model= st.session_state.model
         model=VTKModel(hb_model=hb_model, grid_options=SensorGridOptions.Mesh)
@@ -277,7 +214,7 @@ with st.sidebar.form('box-model-daylight'):
         for metric in annual_metrics:
             results = []
             for grid in model.sensor_grids.data:
-                res_file = pathlib.Path(
+                res_file = Path(
                     results_folder, metric['folder'], f'{grid.identifier}.{metric["extension"]}'
                 )
                 grid_res = [float(v) for v in res_file.read_text().splitlines()]
@@ -309,50 +246,20 @@ with st.sidebar.form('box-model-daylight'):
         st.success("Successful Daylight Simmulation")
 
 
-if 'monthly_energy' in st.session_state:
-    monthly_energy = st.session_state.monthly_energy
-    outputs= st.session_state.outputs
+if 'monthly_balance' in st.session_state:
+    monthly_balance= st.session_state.monthly_balance
+    metrics= st.session_state.metrics
     st.header("Energy Results")
 
     col1, col2= st.columns([0.4,0.6])
 
     with col1:
         #Displaying metrics
-        metrics_df = pd.DataFrame.from_dict(outputs,orient='index').round(2)
-        metrics_df.columns = [' ']
+        metrics_df = display_metrics_as_df(metrics)
         st.dataframe(metrics_df, width=500)
 
     with col2:
-        # Dictionary to hold extracted data   
-        data = defaultdict(list)
-        # Loop through each collection
-        for i, monthly_coll in enumerate(monthly_energy):
-            load_name = monthly_coll.header.metadata['type']
-            monthly_data = monthly_coll.values
-            datetimes = monthly_coll.datetimes
-
-            for d, v in zip(datetimes, monthly_data):
-                data[d].append(v)
-            data['Load'].append(load_name)
-
-        df = pd.DataFrame(data)
-        # Melt the DataFrame to have a single 'Month' column and a 'value' column
-        df_melted = df.melt(id_vars=['Load'], var_name='Month', value_name='Value')
-
-        #colorset:
-        color_set=Colorset()._colors
-        cmap= DP.build_custom_continuous_cmap(color_set[19])
-
-        # Create a stacked bar plot
-        fig, ax = plt.subplots(figsize=(10, 6))
-
-        df_melted.pivot_table(index='Month',columns='Load',values='Value', aggfunc='sum').plot(kind='bar', stacked=True, ax=ax, colormap=cmap, width=0.85, edgecolor= "black")
-        ax.set_xlabel('')
-        ax.set_ylabel('Energy (kWh)')  
-        ax.set_title('Monthly Load Balance')
-        ax.tick_params(axis='x', rotation=0)
-        ax.set_xticklabels(['Jan','Feb', 'Mar', 'Apr','May','Jun','Jul', 'Aug','Sep','Oct','Nov','Dec'])
-        ax.legend(loc='lower left', bbox_to_anchor=(1, 0.5))
+        fig=LoadBalanceBarPlot(monthly_balance=monthly_balance).save_fig()
         st.pyplot(fig)
 
 #visualising daylight
@@ -375,21 +282,21 @@ if 'annual_metrics' in st.session_state:
     for i in range(len(annual_metrics)):
         metric = annual_metrics[i]
         grids = [hb_model.properties.radiance.sensor_grids[0]]
-        mesh_vertices = DP.vertices_from_grids(grids)
+        mesh_vertices = vertices_from_grids(grids)
 
         patch_vertices = []
         for grid in mesh_vertices:
-            repeated_vertices = DP.add_starting_vertices_to_end(grid)
+            repeated_vertices = add_starting_vertices_to_end(grid)
             patch_vertices.append(repeated_vertices)
 
-        patches_per_grid = DP.vertices_to_patches(patch_vertices)
-        patches = DP.flatten(patches_per_grid)
+        patches_per_grid = vertices_to_patches(patch_vertices)
+        patches = flatten(patches_per_grid)
 
         #colormap
         color_set=Colorset()._colors
         index= metric['color_index']
         rgb=color_set[index]
-        cmap= DP.build_custom_continuous_cmap(rgb) #borrowed this from someone
+        cmap= build_custom_continuous_cmap(rgb) #borrowed this from someone
 
         # Create a PatchCollection
         p = PatchCollection(patches, cmap=cmap, alpha=1)
@@ -436,12 +343,9 @@ if 'annual_metrics' in st.session_state:
             image_paths.append(image_filepath)
 
     zip_filename = 'Daylight_metrics.zip'
-    zip_data = DP.generate_zip(image_paths, zip_filename)
+    zip_data = generate_zip(image_paths, zip_filename)
     # Provide a download button for the zip file
     st.download_button(label="Download Daylight Metrics", data=zip_data, file_name=zip_filename, mime="application/zip")
-
-
-
 
 def main():
     pass
