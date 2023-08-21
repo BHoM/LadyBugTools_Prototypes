@@ -9,18 +9,19 @@ from .convection import convection_gain_bowen_ratio
 from .shortwave import shortwave_gain
 from .occupants import occupant_gain
 from .longwave import longwave_gain
-from .makeup_water import supply_water_heating
+from .helpers import supply_water_heating
 
 
 def heat_balance(
     epw: EPW,
     water_surface_area: Union[float, pd.Series, np.ndarray],
     average_depth: float,
-    water_temperature: Union[float, pd.Series, np.ndarray],
+    target_water_temperature: Union[float, pd.Series, np.ndarray],
     people_density: Union[float, pd.Series, np.ndarray] = 0,
     ground_interface_u_value: float = 0.25,
     water_supply_temperature: Union[float, pd.Series, np.ndarray] = None,
     include_epw: bool = False,
+    target_temperature_band: float = 1,
 ) -> pd.DataFrame:
     """
     Calculates the heat balance of a water body using the given parameters.
@@ -36,7 +37,7 @@ def heat_balance(
         convective heat loss/gain.
     average_depth : float
         The average depth of the water body in meters.
-    water_temperature : Union[float, pd.Series, np.ndarray]
+    target_water_temperature : Union[float, pd.Series, np.ndarray]
         The temperature of the water body in Celsius. A profile can be applied
         here instead of a static value, which varies temperature for each timestep.
     people_density : Union[float, pd.Series, np.ndarray], optional
@@ -50,6 +51,9 @@ def heat_balance(
         ground temperature at 1m beneath surface using the EPW file is used.
     include_epw : bool, optional
         Set to True to include the EPW data in the output DataFrame. Default is False.
+    target_temperature_band : float, optional
+        The temperature band around the target water temperature in which the
+        water body is considered to be at the target temperature. Default is 1.
 
     Returns:
     --------
@@ -73,8 +77,7 @@ def heat_balance(
         water_surface_area = np.ones(len(epw_df)) * water_surface_area
 
     evaporation_rate = evaporation_rate_penman(epw)  # l/m2/hour
-    evaporation_rate_l_hour = evaporation_rate * water_surface_area  # l/hour
-    water_loss_m3_hour = evaporation_rate_l_hour / 1000  # m3/hour
+    water_loss_m3_hour = evaporation_rate * water_surface_area / 1000  # m3/hour
 
     heat_balance_df = pd.DataFrame()
     heat_balance_df["Q_solar (W)"] = shortwave_gain(
@@ -87,27 +90,35 @@ def heat_balance(
     heat_balance_df["Q_longwave (W)"] = longwave_gain(
         surface_area=water_surface_area,
         sky_temperature=epw_df["Sky Temperature (C)"],
-        water_temperature=water_temperature,
+        water_temperature=target_water_temperature,
     )
     heat_balance_df["Q_conduction (W)"] = conduction_gain_interface_area(
         surface_area=water_surface_area,
         average_depth=average_depth,
         interface_u_value=ground_interface_u_value,
         soil_temperature=epw_df["Ground Temperature (C)"],
-        water_temperature=water_temperature,
+        water_temperature=target_water_temperature,
     )
     heat_balance_df["Q_evaporation (W)"] = evaporation_gain_mancic(
-        surface_area=water_surface_area, epw=epw
+        surface_area=water_surface_area, evaporation_rate=evaporation_rate
     )
     heat_balance_df["Q_convection (W)"] = convection_gain_bowen_ratio(
-        surface_area=water_surface_area, epw=epw, water_temperature=water_temperature
+        air_temperature=epw_df["Dry Bulb Temperature (C)"],
+        water_temperature=target_water_temperature,
+        atmospheric_pressure=epw_df["Atmospheric Station Pressure (Pa)"],
+        evaporation_gain=heat_balance_df["Q_evaporation (W)"],
     )
     heat_balance_df["Q_feedwater (W)"] = supply_water_heating(
-        water_loss_m3_hour, water_supply_temperature, water_temperature
+        water_volume_m3_hour=water_loss_m3_hour,
+        supply_temperature=water_supply_temperature,
+        target_temperature=target_water_temperature,
     )
 
+    # add remaining energy required to achieve target water temperature
+    heat_balance_df["Q_remaining (W)"] = -heat_balance_df.sum(axis=1)
+
     if include_epw:
-        heat_balance_df = pd.concat([epw_df, heat_balance_df], axis=1)
+        heat_balance_df = pd.concat([epw_df, heat_balance_df, evaporation_rate], axis=1)
 
     return heat_balance_df
 

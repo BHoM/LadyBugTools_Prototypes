@@ -14,7 +14,7 @@ def test_heat_balance() -> None:
         epw=EPW_OBJ,
         water_surface_area=1,
         average_depth=1,
-        water_temperature=20,
+        target_water_temperature=20,
     ).values.sum() == pytest.approx(-2924748.028092618, 0.001)
 
 
@@ -24,7 +24,7 @@ def test_plot_timeseries() -> None:
         epw=EPW_OBJ,
         water_surface_area=1,
         average_depth=1,
-        water_temperature=20,
+        target_water_temperature=20,
     )
     assert isinstance(plot_timeseries(hb_df), plt.Axes)
 
@@ -35,6 +35,6 @@ def test_plot_monthly_balance() -> None:
         epw=EPW_OBJ,
         water_surface_area=1,
         average_depth=1,
-        water_temperature=20,
+        target_water_temperature=20,
     )
     assert isinstance(plot_monthly_balance(hb_df), plt.Axes)

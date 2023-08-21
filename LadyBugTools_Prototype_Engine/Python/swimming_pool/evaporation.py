@@ -1,3 +1,4 @@
+from typing import Union
 import numpy as np
 import pandas as pd
 import pyet
@@ -9,9 +10,13 @@ from ladybugtools_toolkit.ladybug_extension.epw import (
     wind_speed_at_height,
     humid_ratio_from_db_rh,
 )
-from sklearn.linear_model import LinearRegression
+
+from iapws import SeaWater, IAPWS95
 
 WIND_HEIGHT_ABOVE_WATER = 1  # m
+# WATER_TYPE: Union[
+#     SeaWater, IAPWS95
+# ] = IAPWS95  # IAPWS95 or SeaWater, for calculations of water density and specific heat capacity
 
 
 def vapor_pressure_antoine(temperature_c: float) -> float:
@@ -34,86 +39,6 @@ def vapor_pressure_antoine(temperature_c: float) -> float:
     )
 
     return pressure_mmhg * 133.322  # Pa
-
-
-def evaporation_rate_jamesramsden(epw: EPW) -> pd.Series:
-    """Calculate the evaporation rate of water from a body of water of given temperature.
-
-    Source:
-        https://www.engineeringtoolbox.com/evaporation-water-surface-d_690.html
-
-    Args:
-        epw (EPW): EPW object.
-
-    Returns:
-        pd.Series: Evaporation rate in l/m2/hour.
-    """
-
-    air_temperature = collection_to_series(epw.dry_bulb_temperature)
-    wind_speed = wind_speed_at_height(
-        collection_to_series(epw.wind_speed), 10, WIND_HEIGHT_ABOVE_WATER
-    )
-    relative_humidity = collection_to_series(epw.relative_humidity)
-    air_pressure = collection_to_series(epw.atmospheric_station_pressure)
-
-    hr_func = np.vectorize(humid_ratio_from_db_rh)
-
-    humidity_ratio = hr_func(air_temperature, relative_humidity, air_pressure)
-    max_humidity_ratio = hr_func(
-        air_temperature, 100, air_pressure
-    )  # NOTE - water_tempertrue replaced with air temperature heere to agree with other methods. Assuming that evaporation is drvien bnot by th e"boiling" oif water and its temrpeatures, but by the difference between the humidity ratio of the air and the maximum humidity ratio of the air.
-    evaporation_coefficient = 25 + 19 * wind_speed
-
-    return (evaporation_coefficient * (max_humidity_ratio - humidity_ratio)).rename(
-        "Evaporation Rate (l/m2/hour)"
-    )
-
-
-def evaporation_rate_bensmallwood(epw: EPW) -> pd.Series:
-    """Calculate the evaporation rate of water from a body of water of given temperature.
-
-    Source:
-        Old Excel sheet from Ben Smallwood.
-
-    Args:
-        epw (EPW): EPW object.
-
-    Returns:
-        pd.Series: Evaporation rate in l/m2/hour.
-    """
-
-    air_temperature = collection_to_series(epw.dry_bulb_temperature)  # C
-    atmospheric_pressure = collection_to_series(epw.atmospheric_station_pressure)  # Pa
-    rh = collection_to_series(epw.relative_humidity)  # %
-    saturation_pressure_water_vapor = (
-        np.exp(
-            77.345
-            + (0.0057 * (273.15 + air_temperature))
-            - (7235 / (273.15 + air_temperature))
-        )
-    ) / (
-        273.15 + air_temperature
-    ) ** 8.2  # Pa
-    partial_pressure_water_vapor = (rh / 100) * saturation_pressure_water_vapor  # Pa
-
-    humidity_ratio_vapor_pressure = (0.62198 * partial_pressure_water_vapor) / (
-        atmospheric_pressure - partial_pressure_water_vapor
-    )  # kg/kg
-    humidity_ratio_saturation_vapor_pressure = (
-        0.62198
-        * (saturation_pressure_water_vapor)
-        / (atmospheric_pressure - saturation_pressure_water_vapor)
-    )  # kg/kg
-
-    evaporation_coefficient = 25 + 19 * wind_speed_at_height(
-        collection_to_series(epw.wind_speed), 10, WIND_HEIGHT_ABOVE_WATER
-    )
-
-    water_loss_from_surface = evaporation_coefficient * (
-        humidity_ratio_saturation_vapor_pressure - humidity_ratio_vapor_pressure
-    )  # mm/hour, or l/m2/hour
-
-    return water_loss_from_surface.rename("Evaporation Rate (l/m2/hour)")
 
 
 def evaporation_rate_penman(epw: EPW) -> pd.Series:
@@ -214,78 +139,13 @@ def evaporation_rate_penman(epw: EPW) -> pd.Series:
     return penman_openwater_hourly
 
 
-def evaporation_gain_bensmallwood(surface_area: float, epw: EPW) -> float:
-    """Using the method defined in the calculator created by Ben Smallwood,
-    where enthalpy of vaporisation is used to calculate the energy required to
-    evaporate a given volume of water, which equates to energy lost from the
-    body of water.
-
-    Args:
-        surface_area (float): Surface area of the pool in m2.
-        epw (EPW): EPW object.
-
-    Returns:
-        float:
-            Energy lost from the body of water in W.
-    """
-
-    evaporation_rate = evaporation_rate_bensmallwood(epw)  # l/m2/hour
-    evaporation_rate_l_hour = evaporation_rate * surface_area  # l/hour
-    water_loss_m3_hour = evaporation_rate_l_hour / 1000  # m3/hour
-
-    enthalpy_vaporisation_water = (
-        2257.000  # kJ/kg  # TODO - shouldnt this be J/kg??????
-    )
-    water_density = 1000  # kg/m3
-    water_mass = water_loss_m3_hour * water_density  # kg
-    water_loss_kg_s = water_mass / (60 * 60)  # kg/s
-    return -(water_loss_kg_s * enthalpy_vaporisation_water)  # kW
-
-
-def evaporation_gain_woolley(
-    surface_area: float, epw: EPW, water_temperature: float
-) -> pd.Series:
-    """Calculate the evaporation gain from a body of water.
-
-    Source:
-        Woolley J, et al., Swimming pools as heat sinks for air conditioners:
-        Model design and experimental..., Building and Environment (2010),
-        doi:10.1016/j.buildenv.2010.07.014
-
-    Args:
-        surface_area (float): Surface area of the pool in m2.
-        epw (EPW): An EPW object.
-        water_temperature (float): Temperature of the water in C.
-
-    Returns:
-        pd.Series: A pandas series of evaporation gain in W.
-    """
-
-    wind_speed = wind_speed_at_height(
-        collection_to_series(epw.wind_speed), 10, WIND_HEIGHT_ABOVE_WATER
-    )
-    air_temperature = collection_to_series(epw.dry_bulb_temperature)
-
-    vapor_pressure = vapor_pressure_antoine(
-        air_temperature + 273.15
-    )  # vapor pressure in ambient air, Pa
-    sat_vapor_pressure = np.vectorize(saturated_vapor_pressure)(
-        water_temperature + 273.15
-    )  # saturation vapor pressure of air at the pool temperature, Pa
-    h_evap = (
-        0.0360 + 0.0250 * wind_speed
-    )  # wind speed function for evaporation, W/m2.Pa
-    q_evap = h_evap * (sat_vapor_pressure - vapor_pressure) * surface_area  # W
-    return q_evap
-
-
-def evaporation_gain_mancic(surface_area: float, epw: EPW) -> float:
+def evaporation_gain_mancic(surface_area: float, evaporation_rate: float) -> float:
     """Calculate the evaporation gain from a body of water based on the volume
     of water being lost from it.
 
     Args:
         surface_area (float): Surface area of the pool in m2.
-        epw (EPW): EPW object.
+        evaporation_rate (float): The rate of evaporation in l/m2/hour or mm/hour.
 
     Source:
         Mančić Marko V., Živković Dragoljub S., Milosavljević Peđa M.,
@@ -299,39 +159,186 @@ def evaporation_gain_mancic(surface_area: float, epw: EPW) -> float:
             Evaporation gain in W.
     """
 
-    evaporation_rate = evaporation_rate_penman(epw)  # l/m2/hour or mm/hour
+    # evaporation_rate = evaporation_rate_penman(epw)  # l/m2/hour or mm/hour
     evaporation_rate_l_hour = evaporation_rate * surface_area  # l/hour
     water_loss_m3_hour = evaporation_rate_l_hour / 1000  # m3/hour
 
     latent_heat_of_evaporation = 2260.000  # kJ/kg
-    water_density = 1000  # kg/m3
+    water_density = (
+        1000  # kg/m3  # TODO - update per temepratuer of water and type of water
+    )
     water_mass = water_loss_m3_hour * water_density  # kg/hour
     water_loss_kg_s = water_mass / (60 * 60)  # kg/s
     return -water_loss_kg_s * latent_heat_of_evaporation * 1000  # W
 
 
-def evaporation_gain_jamesramsden(surface_area: float, epw: EPW) -> float:
-    """Approximate the evaporation gain from a body of water based on the volume
-    of water being lost from it.
+# def evaporation_rate_jamesramsden(epw: EPW) -> pd.Series:
+#     """Calculate the evaporation rate of water from a body of water of given temperature.
 
-    Args:
-        surface_area (float): Surface area of the pool in m2.
-        epw (EPW): EPW object.
+#     Source:
+#         https://www.engineeringtoolbox.com/evaporation-water-surface-d_690.html
 
-    Source:
-        James Ramsden, 2023 + EngineeringToolbox, https://www.engineeringtoolbox.com/water-properties-d_1573.html
+#     Args:
+#         epw (EPW): EPW object.
 
-    Returns:
-        float:
-            Evaporation gain in W.
-    """
+#     Returns:
+#         pd.Series: Evaporation rate in l/m2/hour.
+#     """
 
-    evaporation_rate = evaporation_rate_jamesramsden(epw)  # l/m2/hour
-    evaporation_rate_l_hour = evaporation_rate * surface_area  # l/hour
-    water_loss_m3_hour = evaporation_rate_l_hour / 1000  # m3/hour
+#     air_temperature = collection_to_series(epw.dry_bulb_temperature)
+#     wind_speed = wind_speed_at_height(
+#         collection_to_series(epw.wind_speed), 10, WIND_HEIGHT_ABOVE_WATER
+#     )
+#     relative_humidity = collection_to_series(epw.relative_humidity)
+#     air_pressure = collection_to_series(epw.atmospheric_station_pressure)
 
-    heat_of_vaporisation = 2454.000  # J/kg, assuming room temperature water # TODO - shouldnt this be J/kg??????
-    water_density = 1000  # kg/m3
-    water_mass = water_loss_m3_hour * water_density  # kg
-    water_loss_kg_s = water_mass / (60 * 60)  # kg/s
-    return -water_loss_kg_s * heat_of_vaporisation  # kW
+#     hr_func = np.vectorize(humid_ratio_from_db_rh)
+
+#     humidity_ratio = hr_func(air_temperature, relative_humidity, air_pressure)
+#     max_humidity_ratio = hr_func(
+#         air_temperature, 100, air_pressure
+#     )  # NOTE - water_tempertrue replaced with air temperature heere to agree with other methods. Assuming that evaporation is drvien bnot by th e"boiling" oif water and its temrpeatures, but by the difference between the humidity ratio of the air and the maximum humidity ratio of the air.
+#     evaporation_coefficient = 25 + 19 * wind_speed
+
+#     return (evaporation_coefficient * (max_humidity_ratio - humidity_ratio)).rename(
+#         "Evaporation Rate (l/m2/hour)"
+#     )
+
+
+# def evaporation_rate_bensmallwood(epw: EPW) -> pd.Series:
+#     """Calculate the evaporation rate of water from a body of water of given temperature.
+
+#     Source:
+#         Old Excel sheet from Ben Smallwood.
+
+#     Args:
+#         epw (EPW): EPW object.
+
+#     Returns:
+#         pd.Series: Evaporation rate in l/m2/hour.
+#     """
+
+#     air_temperature = collection_to_series(epw.dry_bulb_temperature)  # C
+#     atmospheric_pressure = collection_to_series(epw.atmospheric_station_pressure)  # Pa
+#     rh = collection_to_series(epw.relative_humidity)  # %
+#     saturation_pressure_water_vapor = (
+#         np.exp(
+#             77.345
+#             + (0.0057 * (273.15 + air_temperature))
+#             - (7235 / (273.15 + air_temperature))
+#         )
+#     ) / (
+#         273.15 + air_temperature
+#     ) ** 8.2  # Pa
+#     partial_pressure_water_vapor = (rh / 100) * saturation_pressure_water_vapor  # Pa
+
+#     humidity_ratio_vapor_pressure = (0.62198 * partial_pressure_water_vapor) / (
+#         atmospheric_pressure - partial_pressure_water_vapor
+#     )  # kg/kg
+#     humidity_ratio_saturation_vapor_pressure = (
+#         0.62198
+#         * (saturation_pressure_water_vapor)
+#         / (atmospheric_pressure - saturation_pressure_water_vapor)
+#     )  # kg/kg
+
+#     evaporation_coefficient = 25 + 19 * wind_speed_at_height(
+#         collection_to_series(epw.wind_speed), 10, WIND_HEIGHT_ABOVE_WATER
+#     )
+
+#     water_loss_from_surface = evaporation_coefficient * (
+#         humidity_ratio_saturation_vapor_pressure - humidity_ratio_vapor_pressure
+#     )  # mm/hour, or l/m2/hour
+
+#     return water_loss_from_surface.rename("Evaporation Rate (l/m2/hour)")
+
+
+# def evaporation_gain_bensmallwood(surface_area: float, epw: EPW) -> float:
+#     """Using the method defined in the calculator created by Ben Smallwood,
+#     where enthalpy of vaporisation is used to calculate the energy required to
+#     evaporate a given volume of water, which equates to energy lost from the
+#     body of water.
+
+#     Args:
+#         surface_area (float): Surface area of the pool in m2.
+#         epw (EPW): EPW object.
+
+#     Returns:
+#         float:
+#             Energy lost from the body of water in W.
+#     """
+
+#     evaporation_rate = evaporation_rate_bensmallwood(epw)  # l/m2/hour
+#     evaporation_rate_l_hour = evaporation_rate * surface_area  # l/hour
+#     water_loss_m3_hour = evaporation_rate_l_hour / 1000  # m3/hour
+
+#     enthalpy_vaporisation_water = (
+#         2257.000  # kJ/kg  # TODO - shouldnt this be J/kg??????
+#     )
+#     water_density = 1000  # kg/m3
+#     water_mass = water_loss_m3_hour * water_density  # kg
+#     water_loss_kg_s = water_mass / (60 * 60)  # kg/s
+#     return -(water_loss_kg_s * enthalpy_vaporisation_water)  # kW
+
+
+# def evaporation_gain_woolley(
+#     surface_area: float, epw: EPW, water_temperature: float
+# ) -> pd.Series:
+#     """Calculate the evaporation gain from a body of water.
+
+#     Source:
+#         Woolley J, et al., Swimming pools as heat sinks for air conditioners:
+#         Model design and experimental..., Building and Environment (2010),
+#         doi:10.1016/j.buildenv.2010.07.014
+
+#     Args:
+#         surface_area (float): Surface area of the pool in m2.
+#         epw (EPW): An EPW object.
+#         water_temperature (float): Temperature of the water in C.
+
+#     Returns:
+#         pd.Series: A pandas series of evaporation gain in W.
+#     """
+
+#     wind_speed = wind_speed_at_height(
+#         collection_to_series(epw.wind_speed), 10, WIND_HEIGHT_ABOVE_WATER
+#     )
+#     air_temperature = collection_to_series(epw.dry_bulb_temperature)
+
+#     vapor_pressure = vapor_pressure_antoine(
+#         air_temperature + 273.15
+#     )  # vapor pressure in ambient air, Pa
+#     sat_vapor_pressure = np.vectorize(saturated_vapor_pressure)(
+#         water_temperature + 273.15
+#     )  # saturation vapor pressure of air at the pool temperature, Pa
+#     h_evap = (
+#         0.0360 + 0.0250 * wind_speed
+#     )  # wind speed function for evaporation, W/m2.Pa
+#     q_evap = h_evap * (sat_vapor_pressure - vapor_pressure) * surface_area  # W
+#     return q_evap
+
+
+# def evaporation_gain_jamesramsden(surface_area: float, epw: EPW) -> float:
+#     """Approximate the evaporation gain from a body of water based on the volume
+#     of water being lost from it.
+
+#     Args:
+#         surface_area (float): Surface area of the pool in m2.
+#         epw (EPW): EPW object.
+
+#     Source:
+#         James Ramsden, 2023 + EngineeringToolbox, https://www.engineeringtoolbox.com/water-properties-d_1573.html
+
+#     Returns:
+#         float:
+#             Evaporation gain in W.
+#     """
+
+#     evaporation_rate = evaporation_rate_jamesramsden(epw)  # l/m2/hour
+#     evaporation_rate_l_hour = evaporation_rate * surface_area  # l/hour
+#     water_loss_m3_hour = evaporation_rate_l_hour / 1000  # m3/hour
+
+#     heat_of_vaporisation = 2454.000  # J/kg, assuming room temperature water # TODO - shouldnt this be J/kg??????
+#     water_density = 1000  # kg/m3
+#     water_mass = water_loss_m3_hour * water_density  # kg
+#     water_loss_kg_s = water_mass / (60 * 60)  # kg/s
+#     return -water_loss_kg_s * heat_of_vaporisation  # kW

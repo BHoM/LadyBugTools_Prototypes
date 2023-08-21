@@ -8,23 +8,23 @@ from ..conduction import (
     pool_characteristic_length,
     pool_dimensionless_conduction_heat_rate,
     pool_shape_factor,
-    pool_width_length,
+    edge_length_from_aspect_ratio,
 )
 
 
 def test_pool_width_length() -> None:
     """_"""
 
-    width, length = pool_width_length(12)
+    width, length = edge_length_from_aspect_ratio(12)
     assert width == pytest.approx(2.723308256380237, 0.0001)
     assert length == pytest.approx(4.406405324070858, 0.0001)
 
-    width, length = pool_width_length(12, 3)
+    width, length = edge_length_from_aspect_ratio(12, 3)
     assert width == pytest.approx(2, 0.1)
     assert length == pytest.approx(6, 0.1)
 
     with pytest.raises(TypeError):
-        pool_width_length("12")
+        edge_length_from_aspect_ratio("12")
 
 
 def test_ground_interface_area_prism() -> None:
