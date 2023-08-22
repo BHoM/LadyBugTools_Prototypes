@@ -1,3 +1,6 @@
+import pandas as pd
+
+
 def shortwave_gain(
     surface_area: float, insolation: float, solar_absorbtivity: float = 0.85
 ) -> float:
@@ -12,5 +15,7 @@ def shortwave_gain(
     Returns:
         float: Solar gain from radiation incident on the surface in W.
     """
-
-    return surface_area * insolation * solar_absorbtivity  # W
+    res = surface_area * insolation * solar_absorbtivity
+    if isinstance(res, pd.Series):
+        return res.rename("Q_Solar (W)")
+    return res

@@ -3,14 +3,14 @@ import warnings
 import pytest
 from ladybug.epw import EPW
 
-from ..evaporation import (
+from ..evaporation_convection import (
     evaporation_gain_bensmallwood,
     evaporation_gain_jamesramsden,
-    evaporation_gain_mancic,
+    evaporation_gain,
     evaporation_gain_woolley,
     evaporation_rate_bensmallwood,
     evaporation_rate_jamesramsden,
-    evaporation_rate_penman,
+    evaporation_rate,
     vapor_pressure_antoine,
 )
 
@@ -39,9 +39,7 @@ def test_evaporation_rate_bensmallwood() -> None:
 
 def test_evaporation_rate_penman() -> None:
     """_"""
-    assert evaporation_rate_penman(EPW_OBJ).sum() == pytest.approx(
-        1199.4298578206578, 0.0001
-    )
+    assert evaporation_rate(EPW_OBJ).sum() == pytest.approx(1199.4298578206578, 0.0001)
 
 
 def test_evaporation_gain_bensmallwood() -> None:
@@ -63,7 +61,7 @@ def test_evaporation_gain_woolley() -> None:
 def test_evaporation_gain_mancic() -> None:
     """_"""
     warnings.warn("This might be funky - sort out before commiting!")
-    assert evaporation_gain_mancic(epw=EPW_OBJ, surface_area=10).sum() == pytest.approx(
+    assert evaporation_gain(epw=EPW_OBJ, surface_area=10).sum() == pytest.approx(
         -27107114.78674687, 0.0001
     )
 
