@@ -30,8 +30,7 @@ from pollination_streamlit_viewer import viewer
 from file_utils import make_folder_if_not_exist
 from geometry.geom import BoxModelGlazing, BoxModelModel, BoxModelRoom
 from construction.construction_set import BoxModelFabricProperties
-from simulation.energy_sim_setup import SimulationOutputSetup, SimulationParameterSetup
-from simulation.energy_sim_run import RunEnergySimulation
+from simulation.energy_simulation import SimulationOutputSetup, SimulationParameterSetup, RunEnergySimulation
 from results.energy_results import EnergySimResults
 from results.energy_plotting import display_metrics_as_df, LoadBalanceBarPlot
 from results.daylight_plotting import build_custom_continuous_cmap, vertices_from_grids, add_starting_vertices_to_end, vertices_to_patches, flatten, generate_zip 
@@ -109,9 +108,8 @@ with st.sidebar.form('box-model-energy'):
     if energy_submit_button:
         room=st.session_state.room
         model= st.session_state.model
-        epw_file= st.session_state.epw_file
-
         simulation_folder= make_folder_if_not_exist(path, 'simulation')
+
         #Apply construction set from construction_set.py
         bm_construct_set = BoxModelFabricProperties(epw = epw_obj).construction_set
         room.properties.energy.construction_set = bm_construct_set
@@ -133,21 +131,15 @@ with st.sidebar.form('box-model-energy'):
         
         #set up simulation output+ params
         sim_output=SimulationOutputSetup().return_sim_output()
-        sim_setup= SimulationParameterSetup(sim_output=sim_output, room=room,
-                                            model=model, simulation_folder=simulation_folder, epw_obj=epw_obj)        
-        sim_setup.add_autocalculated_design_days()
-        hbjson_path= sim_setup.model_to_json()
-        sim_par_path= sim_setup.sim_par_to_json()
-
+        sim_par= SimulationParameterSetup(sim_output=sim_output,
+                                          epw_file=epw_file)          
         #run energy simulation 
-        energy_sim=RunEnergySimulation(simulation_folder= simulation_folder, hbjson_path=hbjson_path,
-                                     sim_par_path= sim_par_path, epw_file= epw_file)
-        
+        energy_sim=RunEnergySimulation(sim_par= sim_par, simulation_folder=simulation_folder,
+                                       model=model)
         sql_path= energy_sim.run_simulation()
-        load_balance= energy_sim.calculate_load_balance(model, sql_path=sql_path)
-        
+
         #processing results
-        energy_sim_processing= EnergySimResults(load_balance=load_balance)
+        energy_sim_processing= EnergySimResults(sql_path=sql_path, model=model)
         metrics= energy_sim_processing.metric_dictionary()
         monthly_balance= energy_sim_processing.monthy_balance()
 

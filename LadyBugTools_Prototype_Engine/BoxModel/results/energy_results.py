@@ -1,15 +1,19 @@
 from dataclasses import dataclass, field
 from honeybee_energy.result.loadbalance import LoadBalance
 from ladybug.datacollection import HourlyContinuousCollection
+from honeybee.model import Model
 
 
 @dataclass
 class EnergySimResults:
-    load_balance: LoadBalance=field(init=True)
-    norm_bal_stor: list=field(init=False)
+    sql_path: str
+    model: Model
+
+    def __post_init__(self):
+        self.load_balance = LoadBalance.from_sql_file(self.model, self.sql_path)
+        self.norm_bal_stor = self.load_balance.load_balance_terms(True, True) 
 
     def metric_dictionary(self):
-        self.norm_bal_stor = self.load_balance.load_balance_terms(True, True)  
         outputs = {
             'annual solar gain (kWh/m2)': self.norm_bal_stor[1].to_unit('kWh/m2').total,
             'peak solar gain (Wh/m2)': self.norm_bal_stor[1].to_unit('Wh/m2').max,
@@ -25,4 +29,3 @@ class EnergySimResults:
     def monthy_balance(self):
         monthly_energy = [term.total_monthly() for term in self.norm_bal_stor]
         return monthly_energy
-    
