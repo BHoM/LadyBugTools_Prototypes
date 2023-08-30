@@ -1,6 +1,5 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from honeybee_energy.result.loadbalance import LoadBalance
-from ladybug.datacollection import HourlyContinuousCollection
 from honeybee.model import Model
 
 

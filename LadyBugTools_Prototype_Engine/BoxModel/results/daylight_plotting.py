@@ -1,55 +1,16 @@
-from PIL import Image
-import numpy as np
 import os
 import zipfile
-
-import matplotlib as mpl
+from results.daylight_plotter import (
+build_custom_continuous_cmap,
+vertices_from_grids,
+add_starting_vertices_to_end,
+vertices_to_patches,
+flatten
+)
+from dataclasses import dataclass
+from ladybug.color import Colorset
 import matplotlib.pyplot as plt
-import matplotlib.colors as colors
-from matplotlib.path import Path as MPLPath
-from matplotlib.patches import PathPatch
-from matplotlib.pyplot import pcolormesh
 from matplotlib.collections import PatchCollection
-
-from honeybee.model import Model
-from honeybee_radiance.sensorgrid import SensorGrid
-
-def vertices_from_grids(grids):
-    """Takes a list of grids and returns a list of lists, of patches (mesh faces) per grid"""
-    grids_faces_vertices = []
-    for grid in grids:
-        mesh = grid.mesh
-        datatree_faces_vertices = mesh.face_vertices
-        faces = []
-        for face in datatree_faces_vertices:
-            face_vertices = []
-            for vertice in face:
-                x , y = vertice.x, vertice.y
-                face_vertices.append([x,y])
-            faces.append(face_vertices) 
-        grids_faces_vertices.append(faces) 
-    return grids_faces_vertices
-
-def add_starting_vertices_to_end(mesh_face_vertices):
-    """add the starting vertice of each list to the end"""
-    final_vertices = []
-    for face in mesh_face_vertices:
-        new_vertices = face
-        new_vertices.append(face[0])
-        final_vertices.append(new_vertices)
-    return final_vertices
-
-def vertices_to_patches(mesh_face_vertices: list):
-    """take a list of face vertices that have same start and end point"""
-    patches_per_grid = []
-    for grid in mesh_face_vertices:
-        patches = []
-        for face in grid:
-            path = MPLPath(face)
-            patch = PathPatch(path, rasterized = True)
-            patches.append(patch)
-        patches_per_grid.append(patches)
-    return patches_per_grid
 
 def generate_zip(image_paths, zip_filename):
     '''takes a list of image paths and creates a zipfile with the desired filename'''
@@ -60,31 +21,49 @@ def generate_zip(image_paths, zip_filename):
     with open(zip_filename, "rb") as zip_file:
         return zip_file.read()
 
+@dataclass
+class DaylightPlot:
+    metric: dict
+    grids: list
 
-def flatten(l):
-    return [item for sublist in l for item in sublist]
+    def __post_init__(self):
+        self.patches = self._generate_patches()
+        self.cmap = self._generate_colormap()
 
-# modified from sctriangulate on github
-def inter_from_256(x):
-    return np.interp(x=x,xp=[0,255],fp=[0,1])
+    def _generate_patches(self):
+        mesh_vertices = vertices_from_grids(self.grids)
+        patch_vertices = []
 
-def build_custom_continuous_cmap(rgb):
-    '''
-    Generating any custom continuous colormap, user should supply a list of (R,G,B) color taking the value from [0,255], because this is
-    the format the adobe color will output for you. 
-    '''
-    all_red = []
-    all_green = []
-    all_blue = []
-    for rgb in rgb:
-        all_red.append(rgb[0])
-        all_green.append(rgb[1])
-        all_blue.append(rgb[2])
-    # build each section
-    n_section = len(all_red) - 1
-    red = tuple([(1/n_section*i,inter_from_256(v),inter_from_256(v)) for i,v in enumerate(all_red)])
-    green = tuple([(1/n_section*i,inter_from_256(v),inter_from_256(v)) for i,v in enumerate(all_green)])
-    blue = tuple([(1/n_section*i,inter_from_256(v),inter_from_256(v)) for i,v in enumerate(all_blue)])
-    cdict = {'red':red,'green':green,'blue':blue}
-    new_cmap = colors.LinearSegmentedColormap('new_cmap',segmentdata=cdict)
-    return new_cmap
+        for grid in mesh_vertices:
+            repeated_vertices = add_starting_vertices_to_end(grid)
+            patch_vertices.append(repeated_vertices)
+
+        patches_per_grid = vertices_to_patches(patch_vertices)
+        patches = flatten(patches_per_grid)
+        return patches
+    
+    def _generate_colormap(self):
+        color_set=Colorset()._colors
+        index= self.metric['color_index']
+        rgb=color_set[index]
+        cmap= build_custom_continuous_cmap(rgb)
+        return cmap
+
+    def generate_fig(self):
+        p = PatchCollection(self.patches, cmap=self.cmap, alpha=1)
+        p.set_array(self.metric['results'])
+
+        fig, ax = plt.subplots()
+        ax.add_collection(p)
+        ax.autoscale(True)
+        ax.axis('equal')
+        ax.axis('off')
+        p.set_clim([0, 100])
+        return p, fig
+
+    def save_fig(self, output_image_folder):
+        metric_name = self.metric['name'].replace(' ', '_')
+        image_filepath = os.path.join(output_image_folder, f'{metric_name}.png')
+        plt.savefig(image_filepath, bbox_inches='tight', dpi=500)
+        return image_filepath
+        

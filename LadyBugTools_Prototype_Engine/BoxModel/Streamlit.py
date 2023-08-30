@@ -1,40 +1,24 @@
-import json
 import os
-import sys
 from pathlib import Path
-from PIL import Image
 import streamlit as st
-
-import matplotlib.pyplot as plt
-from matplotlib.collections import PatchCollection
-import matplotlib as mpl
-
-from honeybee.facetype import Floor, Wall
-from honeybee.model import Model
 from honeybee_energy.programtype import ProgramType
-from honeybee_energy.lib.programtypes import program_type_by_identifier
-from honeybee_energy.properties.model import ModelEnergyProperties
 from honeybee_energy.hvac.idealair import IdealAirSystem
-from honeybee_energy.simulation.runperiod import RunPeriod
-from honeybee_radiance.sensorgrid import SensorGrid
-from honeybee_vtk.model import Model as VTKModel, SensorGridOptions, DisplayMode
-from honeybee_vtk.legend_parameter import ColorSets
+from honeybee_vtk.model import Model as VTKModel
 from ladybug.epw import EPW
 from ladybug.wea import Wea
-from ladybug.color import Color, ColorRange, Colorset
-from ladybug.datatype.energy import Energy
-from lbt_recipes.recipe import Recipe
-from lbt_recipes.settings import RecipeSettings
 from pollination_streamlit_viewer import viewer
 
 from file_utils import make_folder_if_not_exist
-from geometry.geom import BoxModelGlazing, BoxModelModel, BoxModelRoom
+from geometry.geom import BoxModelGlazing, BoxModelModel, BoxModelRoom, BoxModelSensorGrid
 from construction.construction_set import BoxModelFabricProperties
+from program.program import PeopleLoad, LightingLoad, ElectricEquipmentLoad, InfiltrationLoad, SetpointProgram
 from simulation.energy_simulation import SimulationOutputSetup, SimulationParameterSetup, RunEnergySimulation
+from simulation.daylight_simulation import RunDaylightSimulation
 from results.energy_results import EnergySimResults
 from results.energy_plotting import display_metrics_as_df, LoadBalanceBarPlot
-from results.daylight_plotting import build_custom_continuous_cmap, vertices_from_grids, add_starting_vertices_to_end, vertices_to_patches, flatten, generate_zip 
-from program.program import PeopleLoad, LightingLoad, ElectricEquipmentLoad, InfiltrationLoad, SetpointProgram
+from results.daylight_results import DaylightSimResults
+from results.daylight_plotting import DaylightPlot, generate_zip
+
 
 dirname = os.path.dirname(__file__)
 path = make_folder_if_not_exist(dirname,'temp')
@@ -159,82 +143,24 @@ with st.sidebar.form('box-model-daylight'):
         model = st.session_state.model
         wea = st.session_state.wea
 
-        room = model.rooms[0]
-
-        for face in room.faces:
-            if face.type == Floor():
-                floor = face.geometry
+        #generate sensor grid
+        generate_sensor_grid= BoxModelSensorGrid(model= model, grid_size=grid_size)
         
-        identifier='Test'
-
-        sensor_grid = SensorGrid.from_face3d(identifier=identifier,
-                                      faces = [floor],
-                                      x_dim = grid_size,
-                                      offset=0.75,
-                                      flip=True)
-
-        model.properties.radiance.add_sensor_grid(sensor_grid)
-
-        recipe = Recipe('annual-daylight')
-        recipe.input_value_by_name('model', model)
-        recipe.input_value_by_name('wea', wea)
-        recipe.input_value_by_name('north', 0)
-        recipe.input_value_by_name('thresholds', None)
-        recipe.input_value_by_name('schedule', None)
-        recipe.input_value_by_name('grid-filter', None)
-        recipe.input_value_by_name('radiance-parameters', None)
-
-        run_settings = RecipeSettings(folder = path, reload_old=False)
-
-        project_folder = recipe.run(run_settings, radiance_check=True, silent=True)
-     
+        #Run daylight simulation
+        daylight_sim= RunDaylightSimulation(model=model, wea=wea)
+        daylight_sim.run_annual_daylight_simulation(path)
+        
         results_folder= make_folder_if_not_exist(os.path.join(path,"annual_daylight"),'metrics')
-        
-        hb_model= st.session_state.model
-        model=VTKModel(hb_model=hb_model, grid_options=SensorGridOptions.Mesh)
-        # load the results for each grid
-        # note that we load the results using the order for model to ensure the order will match
+        daylight_results= DaylightSimResults(hb_model=model, results_folder=results_folder)
+        daylight_results.load_and_add_results()
+        daylight_results.set_display_modes()
+        annual_metrics=daylight_results.annual_metrics
 
-        annual_metrics = [
-            {'folder': 'da', 'extension': 'da', 'name': 'Daylight Autonomy', 'colors': ColorSets.nuanced, 'color_index':1,'shortened': 'DA'},
-            {'folder': 'cda', 'extension': 'cda', 'name': 'Continuous Daylight Autonomy', 'colors': ColorSets.nuanced,'color_index':1, 'shortened': 'cDa'},
-            {'folder': 'udi', 'extension': 'udi', 'name': 'Useful Daylight Illuminance', 'colors': ColorSets.annual_comfort,'color_index':7, 'shortened': 'UDIa'},
-            {'folder': 'udi_lower', 'extension': 'udi', 'name': 'Lower Daylight Illuminance', 'colors': ColorSets.cold_sensation,'color_index':11, 'shortened': 'UDIs'},
-            {'folder': 'udi_upper', 'extension': 'udi', 'name': 'Excessive Daylight Illuminance', 'colors': ColorSets.shade_harm,'color_index':16, 'shortened': 'UDIe'}
-        ]
-
-        for metric in annual_metrics:
-            results = []
-            for grid in model.sensor_grids.data:
-                res_file = Path(
-                    results_folder, metric['folder'], f'{grid.identifier}.{metric["extension"]}'
-                )
-                grid_res = [float(v) for v in res_file.read_text().splitlines()]
-                metric['results']=grid_res
-                results.append(grid_res)
-
-            # add the results to sensor grids as a new field
-            # per face is set to True since we loaded grids as a mesh
-            model.sensor_grids.add_data_fields(results, name=metric['name'], per_face=True,data_range=[0,100], colors=metric['colors'])
-
-            model.sensor_grids.color_by= 'Daylight Autonomy'
-        
-        # change display mode for sensor grids to be surface with edges
-        model.sensor_grids.display_mode = DisplayMode.SurfaceWithEdges
-        # update model visualization to wireframe
-        model.update_display_mode(DisplayMode.Wireframe)
-        # make shades to be shaded with edge
-        model.shades.display_mode = DisplayMode.SurfaceWithEdges
-        #model.to_html(folder = output_folder,name='Test-With-DaylightResults', show=False)
-
-
-        vtk_path = Path(model.to_vtkjs(folder=path, name=hb_model.identifier))
-        vtkjs_name = f'{hb_model.identifier}_vtkjs'
+        vtk_path = Path(daylight_results.model.to_vtkjs(folder=path, name=model.identifier))
+        vtkjs_name = f'{model.identifier}_vtkjs'
         st.session_state.content = vtk_path.read_bytes()
         st.session_state[vtkjs_name] = vtk_path
-
         st.session_state.annual_metrics= annual_metrics
-
         st.success("Successful Daylight Simmulation")
 
 
@@ -258,61 +184,29 @@ if 'monthly_balance' in st.session_state:
 if 'annual_metrics' in st.session_state:
     st.header("Daylight Results")
     annual_metrics= st.session_state.annual_metrics
-    hb_model= st.session_state.model
-    model=VTKModel(hb_model=hb_model, grid_options=SensorGridOptions.Mesh)
+    model= st.session_state.model
+
     image_paths=[]
-
-    #show legend tickbox
+    output_image_folder = os.path.join(path, 'annual_daylight\\results')
     show_legend = st.checkbox("Show Legend", value=False)
-
-    # Specify the output folder where you want to save the images
-    output_image_folder = os.path.join(path, 'annual_daylight//results')
-    st.text(output_image_folder)
 
     col1, col2, col3, col4, col5 = st.columns(5)
 
     for i in range(len(annual_metrics)):
         metric = annual_metrics[i]
-        grids = [hb_model.properties.radiance.sensor_grids[0]]
-        mesh_vertices = vertices_from_grids(grids)
+        grids = [model.properties.radiance.sensor_grids[0]]
 
-        patch_vertices = []
-        for grid in mesh_vertices:
-            repeated_vertices = add_starting_vertices_to_end(grid)
-            patch_vertices.append(repeated_vertices)
+        plot= DaylightPlot(metric, grids)
+        p,fig= plot.generate_fig()
+        image_filepath= plot.save_fig(output_image_folder)
 
-        patches_per_grid = vertices_to_patches(patch_vertices)
-        patches = flatten(patches_per_grid)
-
-        #colormap
-        color_set=Colorset()._colors
-        index= metric['color_index']
-        rgb=color_set[index]
-        cmap= build_custom_continuous_cmap(rgb) #borrowed this from someone
-
-        # Create a PatchCollection
-        p = PatchCollection(patches, cmap=cmap, alpha=1)
-        p.set_array(metric['results'])
-
-        fig, ax = plt.subplots()
-        ax.add_collection(p)
-        ax.autoscale(True)
-        ax.axis('equal')
-        ax.axis('off')
-        p.set_clim([0, 100])
-
+        #toggling legend-colorbar + title
         colorbar=fig.colorbar(p)
         if show_legend is True:
             colorbar.ax.set_title(metric['shortened'])
-        
         else:
             colorbar.ax.set_title('')  # Remove the colorbar title
             colorbar.remove()
-
-        # Saving graphic
-        metric_name = metric['name'].replace(' ', '_')
-        image_filepath = os.path.join(output_image_folder, f'{metric_name}.png')
-        plt.savefig(image_filepath, bbox_inches='tight', dpi=500)
 
         # Display the image in the appropriate column
         with open(image_filepath, "rb") as image_file:
@@ -334,10 +228,11 @@ if 'annual_metrics' in st.session_state:
             st.image(image_data, caption=metric['name'], use_column_width=True)
             image_paths.append(image_filepath)
 
-    zip_filename = 'Daylight_metrics.zip'
-    zip_data = generate_zip(image_paths, zip_filename)
     # Provide a download button for the zip file
-    st.download_button(label="Download Daylight Metrics", data=zip_data, file_name=zip_filename, mime="application/zip")
+    zip_filename = os.path.join(output_image_folder,'Daylight_metrics.zip')
+    zip_data = generate_zip(image_paths, zip_filename)
+
+    st.download_button(label="Download Daylight Metrics", data=zip_data, file_name='Daylight_metrics.zip', mime="application/zip")
 
 def main():
     pass
