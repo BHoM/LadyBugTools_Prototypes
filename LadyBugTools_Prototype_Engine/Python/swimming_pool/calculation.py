@@ -4,39 +4,35 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pint
-from iapws import SeaWater
 from ladybugtools_toolkit.ladybug_extension.epw import (
     EPW,
     epw_to_dataframe,
-    wind_speed_at_height,
 )
 from tqdm import tqdm
 
-# from .conduction import conduction_gain
-from evaporation_convection import (
+from .evaporation_convection import (
     evaporation_rate,
     evaporation_gain,
     convection_gain,
-    vapor_pressure_antoine,
+    density_water,
+    specific_heat_water,
     latent_heat_of_vaporisation,
 )
-from conduction import conduction_gain
-from longwave import longwave_gain
-from shortwave import shortwave_gain
-from occupants import occupant_gain
-from plot import plot_monthly_balance, plot_timeseries
+from .conduction import conduction_gain
+from .longwave import longwave_gain
+from .shortwave import shortwave_gain
+from .occupants import occupant_gain
+from .plot import plot_monthly_balance, plot_timeseries
 
 
 def main(
-    epw_file: str = r"C:\Users\tgerrish\Buro Happold\0053340 DDC - Project W Master - Climate\EPW_Modified\SAU_MD_Prince.Abdulmajeed.Bin.Abdulaziz.AP.404010_TMYx.2007-2021_FIXED_TG_300M.epw",
+    epw_file: str,
     surface_area: float = 1,
     avg_depth: float = 1,
-    n_occupants: Union[int, Tuple[int]] = 0,
-    target_water_temperature: Union[float, Tuple[float]] = 29,
-    target_water_temperature_band: float = 1,
-    supply_water_temperature: Union[float, Tuple[float]] = None,
+    n_occupants: Union[int, Tuple[int], pd.Series] = 0,
+    target_water_temperature: Union[float, Tuple[float], pd.Series] = None,
+    supply_water_temperature: Union[float, Tuple[float], pd.Series] = None,
     ground_interface_u_value: float = 0.25,
-    water_salinity: float = 0.0038,
     wind_height_above_water: float = 1,
 ):
     """
@@ -81,10 +77,13 @@ def main(
             name="Supply Water Temperature (C)",
             index=ground_temperature.index,
         )
-    supply_water_specific_heat = 4.186  # kJ/kg/K
 
     # create target water temperature profile
-    if isinstance(target_water_temperature, (float, int)):
+    if target_water_temperature is None:
+        target_water_temperature = ground_temperature.rename(
+            "Target Water Temperature (C)"
+        )
+    elif isinstance(target_water_temperature, (float, int)):
         target_water_temperature = pd.Series(
             np.ones(len(air_temperature)) * target_water_temperature,
             name="Target Water Temperature (C)",
@@ -99,14 +98,18 @@ def main(
 
     # create occupant gain
     if isinstance(n_occupants, (float, int)):
-        n_occupants = np.ones(len(epw_df)) * n_occupants
+        n_occupants = pd.Series(
+            np.ones(len(epw_df)) * n_occupants,
+            name="Number of Occupants (dimensionless)",
+            index=air_temperature.index,
+        )
     else:
         n_occupants = pd.Series(
             n_occupants,
             name="Number of Occupants (dimensionless)",
             index=air_temperature.index,
         )
-    q_occupants = occupant_gain(n_occupants)
+    q_occupants = occupant_gain(n_occupants, gain_per_person=150)
 
     # create solar gain
     q_solar = shortwave_gain(
@@ -118,30 +121,38 @@ def main(
     container_volume = surface_area * avg_depth
 
     # set initial properties for water prior to looping through
-    _current_water_temperature = ground_temperature.mean()
-    water = SeaWater(
-        T=_current_water_temperature + 273.15,
-        P=air_pressure[0] * 1e-6,
-        S=water_salinity,
-        fast=True,
-    )
+    _current_water_temperature = (
+        ground_temperature.mean()
+    )  # use avg ground temp for year as starting water temp
+    _current_water_density = density_water(_current_water_temperature)  # kg/m3
+    _current_water_specific_heat_capacity = (
+        specific_heat_water(_current_water_temperature) * 1000
+    )  # J/kg/K
+    _current_water_latent_heat_of_vaporisation = latent_heat_of_vaporisation(
+        _current_water_temperature, air_pressure[0]
+    )  # kJ/kg
 
     q_evaporation = []
     q_conduction = []
     q_convection = []
     q_longwave = []
-    water_temperature = []
+    q_htg_clg = []
+    q_energy_balance = []
+    water_temperature_without_htgclg = []
+    rem_water_temp = []
     pbar = tqdm(list(enumerate(epw_df.iterrows())))
     for n, (idx, vals) in pbar:
-        if idx.hour == 0:
-            pbar.set_description(f"Calculating {idx:%b %d}")
+        # if idx.hour == 0:
+        #     pbar.set_description(f"Calculating {idx:%b %d}")
+        pbar.set_description(f"Calculating {idx:%b %d %H:%M}")
 
         # calculate heat balance for this point in time
         _evap_gain = evaporation_gain(
             evap_rate=evap_rate[n],
             surface_area=surface_area,
-            latent_heat_of_evaporation=2256,  # latent_heat_of_vaporisation(air_temperature[n]),
-            water_density=water.rho,
+            latent_heat_of_evaporation=_current_water_latent_heat_of_vaporisation
+            / 1000,  # TODO - check units here
+            water_density=_current_water_density,
         )
         q_evaporation.append(_evap_gain)
 
@@ -170,7 +181,7 @@ def main(
         q_conduction.append(_cond_gain)
 
         # calculate the resultant energy balance following these gains
-        _sum_gain = (
+        _energy_balance = (
             _evap_gain
             + _conv_gain
             + _lwav_gain
@@ -178,42 +189,39 @@ def main(
             + q_solar[n]
             + q_occupants[n]
         )
+        q_energy_balance.append(_energy_balance)
 
-        # TODO - calculate resultant temperature in remaining water
-        volume_water_lost = (evap_rate[0] * surface_area) / 1000  # m3
-        mass_water_lost = volume_water_lost * water.rho  # kg
+        # calculate resultant temperature in remaining water
+        volume_water_lost = (evap_rate[n] * surface_area) / 1000  # m3
         remaining_water_volume = container_volume - volume_water_lost  # m3
-        remaining_water_specific_heat = water.cp  # kJ/kg
-        remaining_water_density = water.rho  # kg/m3
-        remaining_water_mass = remaining_water_volume * remaining_water_density  # kg
+        remaining_water_mass = remaining_water_volume * _current_water_density  # kg
         remaining_water_temperature = (
-            _sum_gain / (remaining_water_mass * remaining_water_specific_heat)
+            _energy_balance
+            / (remaining_water_mass * _current_water_specific_heat_capacity)
         ) + _current_water_temperature  # C
-        _current_water_temperature = (
-            (mass_water_lost * supply_water_specific_heat * supply_water_temperature[n])
-            + (
-                remaining_water_mass
-                * supply_water_specific_heat
-                * remaining_water_temperature
-            )
-        ) / (
-            (mass_water_lost * supply_water_specific_heat)
-            + (remaining_water_mass * supply_water_specific_heat)
+        rem_water_temp.append(remaining_water_temperature)
+        # add water back into the body of water at a given temperature
+        _current_water_temperature = np.average(
+            [supply_water_temperature[n], remaining_water_temperature],
+            weights=[volume_water_lost, remaining_water_volume],
         )
+        water_temperature_without_htgclg.append(_current_water_temperature)
 
-        # TODO - calculate temperatureb after topping up with supply water
-        water = SeaWater(
-            T=_current_water_temperature + 273.15,
-            P=air_pressure[n] * 1e-6,
-            S=water_salinity,
-            fast=True,
+        # recalculate properties for water at this temperature
+        _current_water_density = density_water(_current_water_temperature)  # kg/m3
+        _current_water_specific_heat_capacity = (
+            specific_heat_water(_current_water_temperature) * 1000
+        )  # J/kg/K
+        _current_water_latent_heat_of_vaporisation = latent_heat_of_vaporisation(
+            _current_water_temperature, air_pressure[n]
+        )  # kJ/kg
+
+        # TODO - calculate the heat required to reach the target water temperature
+        q_htg_clg = (
+            (_current_water_density * container_volume)
+            * _current_water_specific_heat_capacity
+            * (target_water_temperature[n] - _current_water_temperature)
         )
-        water_temperature.append(_current_water_temperature)
-
-        # _current_water_isobaric_heat_capacity = water.cp * (
-        #     ureg.kilojoule / (ureg.kilogram * ureg.kelvin)
-        # )
-        # TODO - calculate the heat required to maintain the mixed water at a given temperature
 
     # combine heat gains into a single dataframe for plotting
     q_solar = pd.Series(q_solar, index=epw_df.index, name="Q_Solar (W)")
@@ -224,9 +232,22 @@ def main(
         q_evaporation, index=epw_df.index, name="Q_Evaporation (W)"
     )
     q_convection = pd.Series(q_convection, index=epw_df.index, name="Q_Convection (W)")
+    q_conditioning_water_temp = pd.Series(
+        q_htg_clg, index=epw_df.index, name="Q_Conditioning [WATERTEMP] (W)"
+    )
+    q_conditioning_heat_balance = pd.Series(
+        q_energy_balance, index=epw_df.index, name="Q_Conditioning [HEATBALANCE] (W)"
+    )
 
-    water_temperature = pd.Series(
-        water_temperature, index=epw_df.index, name="Water Temperature (C)"
+    water_temperature_without_htgclg = pd.Series(
+        water_temperature_without_htgclg,
+        index=epw_df.index,
+        name="Water Temperature [without htg/clg] (C)",
+    )
+    rem_water_temp = pd.Series(
+        rem_water_temp,
+        index=epw_df.index,
+        name="Water Temperature [prior to resupply] (C)",
     )
 
     gains_df = pd.concat(
@@ -237,21 +258,52 @@ def main(
             q_conduction,
             q_evaporation,
             q_convection,
+            # q_conditioning_water_temp,
+            q_conditioning_heat_balance,
+            water_temperature_without_htgclg,
+            rem_water_temp,
+            air_temperature,
+            sky_temperature,
+            air_pressure,
+            ground_temperature,
+            insolation,
+            evap_rate,
+            supply_water_temperature,
+            target_water_temperature,
         ],
         axis=1,
     )
 
-    fig, [ax0, ax1] = plt.subplots(2, 1, figsize=(8, 8))
-    plot_timeseries(gains_df, ax=ax0)
-    plot_monthly_balance(gains_df, ax=ax1)
-    plt.tight_layout()
-    plt.show()
+    # fig, [ax0, ax1] = plt.subplots(2, 1, figsize=(8, 8))
+    # plot_timeseries(gains_df, ax=ax0)
+    # plot_monthly_balance(gains_df, ax=ax1)
+    # plt.tight_layout()
+    # fig.show()
 
-    fig, ax = plt.subplots(1, 1, figsize=(8, 4))
-    ax.plot(water_temperature)
-    plt.tight_layout()
-    plt.show()
+    # fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+    # ax.plot(water_temperature)
+    # plt.tight_layout()
+    # plt.show()
+
+    return gains_df
 
 
 if __name__ == "__main__":
-    main()
+    epw_file = r"C:\Users\tgerrish\Buro Happold\0053340 DDC - Project W Master - Climate\EPW_Modified\SAU_MD_Prince.Abdulmajeed.Bin.Abdulaziz.AP.404010_TMYx.2007-2021_FIXED_TG_300M.epw"
+    surface_area = 1  # m2
+    avg_depth = 1  # m
+
+    # create occupant profile
+    n_occupants = 0.1  # approx 625 max occupancy of an olympic pool
+    idx = pd.date_range("2017-01-01 00:00:00", "2017-12-31 23:00:00", freq="H")
+    n_occupants = np.where(
+        idx.hour.isin([10, 11, 13, 14, 17]),
+        n_occupants,
+        np.where(idx.hour.isin([8, 9, 12, 15, 16]), n_occupants * 0.5, 0),
+    )
+
+    main(
+        epw_file=epw_file,
+        n_occupants=n_occupants,
+        # water_salinity=0,  # 0.0038,
+    )

@@ -9,25 +9,315 @@ from ladybugtools_toolkit.ladybug_extension.epw import (
 )
 from ladybug.psychrometrics import saturated_vapor_pressure
 import pint
+from scipy.interpolate import interp2d, interp1d, griddata, LinearNDInterpolator
 
 
-def latent_heat_of_vaporisation(air_temperature: float):
-    """Calculate the latent heat of vapourisation from air temperature.
+def density_water(temperature: float) -> float:
+    """Calculate the density of water at a given temperature.
 
     Args:
-        airtemp: (float)
-            Air temperaturem in degrees C.
+        temperature (float): The temperature of water in degrees celsius.
 
     Returns:
-        float:
-            lambda [J kg-1 K-1].
-
-    Source:
-        J. Bringfelt. Test of a forest evapotranspiration model. Meteorology and
-        Climatology Reports 52, SMHI, Norrköpping, Sweden, 1986.
+        float: The density of water in kg/m3.
     """
 
-    return 4185.5 * (751.78 - 0.5655 * (air_temperature + 273.15))  # J/kg.K
+    _temperature = [
+        0.1,
+        1,
+        4,
+        10,
+        15,
+        20,
+        25,
+        30,
+        35,
+        40,
+        45,
+        50,
+        55,
+        60,
+        65,
+        70,
+        75,
+        80,
+        85,
+        90,
+        95,
+        100,
+        110,
+        120,
+        140,
+        160,
+        180,
+        200,
+        220,
+        240,
+        260,
+        280,
+        300,
+        320,
+        340,
+        360,
+        373.946,
+    ]
+    _density = [
+        999.85,
+        999.9,
+        999.97,
+        999.7,
+        999.1,
+        998.21,
+        997.05,
+        995.65,
+        994.03,
+        992.22,
+        990.21,
+        988.04,
+        985.69,
+        983.2,
+        980.55,
+        977.76,
+        974.84,
+        971.79,
+        968.61,
+        965.31,
+        961.89,
+        958.35,
+        950.95,
+        943.11,
+        926.13,
+        907.45,
+        887,
+        864.66,
+        840.22,
+        813.37,
+        783.63,
+        750.28,
+        712.14,
+        667.09,
+        610.67,
+        527.59,
+        322,
+    ]
+
+    f = interp1d(_temperature, _density)
+
+    res = f(temperature)
+
+    return res
+
+
+def specific_heat_water(temperature: float) -> float:
+    """Calculate the specific heat of water at a given temperature.
+
+    Args:
+        temperature (float): The temperature of water in degrees celsius.
+
+    Returns:
+        float: The specific heat of water in kJ/kg/K.
+    """
+
+    _temperature = [
+        0.01,
+        10,
+        20,
+        25,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80,
+        90,
+        100,
+        110,
+        120,
+        140,
+        160,
+        180,
+        200,
+        220,
+        240,
+        260,
+        280,
+        300,
+        320,
+        340,
+        360,
+    ]
+    _isobaric_specific_heat = [
+        4.2199,
+        4.1955,
+        4.1844,
+        4.1816,
+        4.1801,
+        4.1796,
+        4.1815,
+        4.1851,
+        4.1902,
+        4.1969,
+        4.2053,
+        4.2157,
+        4.2283,
+        4.2435,
+        4.2826,
+        4.3354,
+        4.405,
+        4.4958,
+        4.6146,
+        4.7719,
+        4.9856,
+        5.2889,
+        5.7504,
+        6.5373,
+        8.208,
+        15.004,
+    ]
+    f = interp1d(_temperature, _isobaric_specific_heat)
+    res = f(temperature)
+
+    return res
+
+
+def latent_heat_of_vaporisation(temperature: float, vapor_pressure: float):
+    """Calculate the latent heat of vapourisation from air pressure and temperature of water.
+
+    This method uses values published from
+    The Engineering ToolBox (2010). Water - Heat of Vaporization vs. Temperature. [online] Available at: https://www.engineeringtoolbox.com/water-properties-d_1573.html [Accessed 30 08 2023].
+
+    Args:
+        temperature (float):
+            The temperature of water in degrees celsius.
+        vapor_pressure: (float)
+            Atmospheric pressure in Pa.
+
+    Returns:
+        heat_of_vaporizaton: float:
+            lambda [kJ kg-1 K-1].
+    """
+
+    _temperature = [
+        0.01,
+        2,
+        4,
+        10,
+        14,
+        18,
+        20,
+        25,
+        30,
+        34,
+        40,
+        44,
+        50,
+        54,
+        60,
+        70,
+        80,
+        90,
+        96,
+        100,
+        110,
+        120,
+        140,
+        160,
+        180,
+        200,
+        220,
+        240,
+        260,
+        280,
+        300,
+        320,
+        340,
+        360,
+        373.946,
+    ]
+    _vapor_pressure = [
+        0.61165,
+        0.70599,
+        0.81355,
+        1.2282,
+        1.599,
+        2.0647,
+        2.3393,
+        3.1699,
+        4.247,
+        5.3251,
+        7.3849,
+        9.1124,
+        12.352,
+        15.022,
+        19.946,
+        31.201,
+        47.414,
+        70.182,
+        87.771,
+        101.42,
+        143.38,
+        198.67,
+        361.54,
+        618.23,
+        1002.8,
+        1554.9,
+        2319.6,
+        3346.9,
+        4692.3,
+        6416.6,
+        8587.9,
+        11284,
+        14601,
+        18666,
+        22064,
+    ]
+    _heat_of_vaporization = [
+        2500.9,
+        2496.2,
+        2491.4,
+        2477.2,
+        2467.7,
+        2458.3,
+        2453.5,
+        2441.7,
+        2429.8,
+        2420.3,
+        2406,
+        2396.4,
+        2381.9,
+        2372.3,
+        2357.7,
+        2333,
+        2308,
+        2282.5,
+        2266.9,
+        2256.4,
+        2229.6,
+        2202.1,
+        2144.3,
+        2082,
+        2014.2,
+        1939.7,
+        1857.4,
+        1765.4,
+        1661.6,
+        1543,
+        1404.6,
+        1238.4,
+        1027.3,
+        719.8,
+        0,
+    ]
+
+    f = LinearNDInterpolator(
+        list(zip(_temperature, _vapor_pressure)), _heat_of_vaporization, fill_value=2260
+    )
+    res = f(temperature, vapor_pressure / 1000)
+
+    if isinstance(temperature, float) and isinstance(vapor_pressure, float):
+        return res[0]
+
+    return res
 
 
 def vapor_pressure_antoine(temperature_c: float) -> float:
