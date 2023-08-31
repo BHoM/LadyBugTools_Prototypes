@@ -13,7 +13,7 @@ from geometry.geom import BoxModelGlazing, BoxModelModel, BoxModelRoom, BoxModel
 from construction.construction_set import BoxModelFabricProperties
 from program.program import PeopleLoad, LightingLoad, ElectricEquipmentLoad, InfiltrationLoad, SetpointProgram
 from simulation.energy_simulation import SimulationOutputSetup, SimulationParameterSetup, RunEnergySimulation
-from simulation.daylight_simulation import RunDaylightSimulation
+from simulation.daylight_simulation import DaylightSimulation
 from results.energy_results import EnergySimResults
 from results.energy_plotting import display_metrics_as_df, LoadBalanceBarPlot
 from results.daylight_results import DaylightSimResults
@@ -142,12 +142,12 @@ with st.sidebar.form('box-model-daylight'):
     if daylight_submit_button:
         model = st.session_state.model
         wea = st.session_state.wea
-
-        #generate sensor grid
-        generate_sensor_grid= BoxModelSensorGrid(model= model, grid_size=grid_size)
+        # Generate sensor grid
+        sensor_grid= BoxModelSensorGrid(model= model, grid_size=grid_size).sensor_grid
+        model.properties.radiance.add_sensor_grid(sensor_grid)
         
-        #Run daylight simulation
-        daylight_sim= RunDaylightSimulation(model=model, wea=wea)
+        # Run daylight simulation
+        daylight_sim= DaylightSimulation(model=model, wea=wea)
         daylight_sim.run_annual_daylight_simulation(path)
         
         results_folder= make_folder_if_not_exist(os.path.join(path,"annual_daylight"),'metrics')
@@ -200,7 +200,8 @@ if 'annual_metrics' in st.session_state:
         p,fig= plot.generate_fig()
         image_filepath= plot.save_fig(output_image_folder)
 
-        #toggling legend-colorbar + title
+        # Toggling legend-colorbar + title
+        # Could potentially move toggle to DaylightPlot class
         colorbar=fig.colorbar(p)
         if show_legend is True:
             colorbar.ax.set_title(metric['shortened'])

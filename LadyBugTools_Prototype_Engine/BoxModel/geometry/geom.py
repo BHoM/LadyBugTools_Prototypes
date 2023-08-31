@@ -56,7 +56,7 @@ class BoxModelRoom:
 @dataclass
 class BoxModelModel:
     '''generates model from room'''
-    room: Room= field(init=True)
+    room: Room
     model: Model= field(init=False)
 
     def generate_honeybee_model(self)->Model:
@@ -71,8 +71,9 @@ class BoxModelModel:
 
 @dataclass
 class BoxModelSensorGrid:
-    model: Model= field(init= True)
-    grid_size: float= field(init=True)
+    model: Model
+    grid_size: float
+    offset_distance: float= field(default=0.75)
 
     def __post_init__(self):
         room= self.model.rooms[0]
@@ -80,10 +81,8 @@ class BoxModelSensorGrid:
             if face.type ==Floor():
                 floor = face.geometry
         identifier= 'Test'
-        sensor_grid = SensorGrid.from_face3d(identifier=identifier,
+        self.sensor_grid = SensorGrid.from_face3d(identifier=identifier,
                                         faces = [floor],
                                         x_dim = self.grid_size,
-                                        offset=0.75,
+                                        offset=self.offset_distance,
                                         flip=True)
-        
-        self.model.properties.radiance.add_sensor_grid(sensor_grid)

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class RunDaylightSimulation:
+class DaylightSimulation:
     model: Model
     wea: Wea
 

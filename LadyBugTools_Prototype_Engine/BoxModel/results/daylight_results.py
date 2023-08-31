@@ -40,3 +40,4 @@ class DaylightSimResults:
         self.model.sensor_grids.display_mode = DisplayMode.SurfaceWithEdges
         self.model.update_display_mode(DisplayMode.Wireframe)
         self.model.shades.display_mode = DisplayMode.SurfaceWithEdges
+        # Not working as expected due to underlying pollination code- for future investigation

@@ -3,7 +3,6 @@ import matplotlib.colors as colors
 from matplotlib.path import Path as MPLPath
 from matplotlib.patches import PathPatch
 
-
 def vertices_from_grids(grids):
     """Takes a list of grids and returns a list of lists, of patches (mesh faces) per grid"""
     grids_faces_vertices = []
