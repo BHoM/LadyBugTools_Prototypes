@@ -3,7 +3,6 @@ from typing import Tuple, Union
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import pint
 from ladybugtools_toolkit.ladybug_extension.epw import (
     EPW,
     epw_to_dataframe,
@@ -28,12 +27,13 @@ from .plot import plot_monthly_balance, plot_timeseries
 def main(
     epw_file: str,
     surface_area: float = 1,
-    avg_depth: float = 1,
+    average_depth: float = 1,
     n_occupants: Union[int, Tuple[int], pd.Series] = 0,
     target_water_temperature: Union[float, Tuple[float], pd.Series] = None,
     supply_water_temperature: Union[float, Tuple[float], pd.Series] = None,
     ground_interface_u_value: float = 0.25,
     wind_height_above_water: float = 1,
+    coverage_schedule: Union[int, Tuple[int], pd.Series] = None,
 ):
     """
 
@@ -49,7 +49,7 @@ def main(
     # Load EPW data
     epw = EPW(epw_file)
     epw_df = epw_to_dataframe(
-        epw, include_additional=True, ground_temperature_depth=avg_depth
+        epw=epw, include_additional=True, ground_temperature_depth=average_depth
     ).droplevel([0, 1], axis=1)
 
     air_temperature = epw_df["Dry Bulb Temperature (C)"]
@@ -58,7 +58,26 @@ def main(
     ground_temperature = epw_df["Ground Temperature (C)"]
     insolation = epw_df["Global Horizontal Radiation (Wh/m2)"]
 
-    evap_rate = evaporation_rate(epw, wind_height_above_water=wind_height_above_water)
+    evap_rate = evaporation_rate(
+        epw=epw, wind_height_above_water=wind_height_above_water
+    )
+
+    # create coverage schedule, which is a multiplier on evaporation rate
+    if coverage_schedule is None:
+        coverage_schedule = pd.Series(
+            np.zeros(len(epw_df)), name="Water Coverage (dimensionless)"
+        )
+    elif isinstance(coverage_schedule, (float, int)):
+        if coverage_schedule > 1 or coverage_schedule < 0:
+            raise ValueError("Coverage schedule must be between 0 and 1 (inclusive)")
+        coverage_schedule = pd.Series(
+            np.zeros(len(epw_df)) * coverage_schedule,
+            name="Water Coverage (dimensionless)",
+        )
+    else:
+        coverage_schedule = pd.Series(
+            coverage_schedule, name="Water Coverage (dimensionless)"
+        )
 
     # create supply water temperature profile
     if supply_water_temperature is None:
@@ -109,7 +128,7 @@ def main(
             name="Number of Occupants (dimensionless)",
             index=air_temperature.index,
         )
-    q_occupants = occupant_gain(n_occupants, gain_per_person=150)
+    q_occupants = occupant_gain(n_people=n_occupants)
 
     # create solar gain
     q_solar = shortwave_gain(
@@ -118,7 +137,7 @@ def main(
     )
 
     # Derive properties from inputs
-    container_volume = surface_area * avg_depth
+    container_volume = surface_area * average_depth
 
     # set initial properties for water prior to looping through
     _current_water_temperature = (
@@ -139,19 +158,16 @@ def main(
     q_htg_clg = []
     q_energy_balance = []
     water_temperature_without_htgclg = []
-    rem_water_temp = []
+    remaining_water_temperature = []
     pbar = tqdm(list(enumerate(epw_df.iterrows())))
-    for n, (idx, vals) in pbar:
-        # if idx.hour == 0:
-        #     pbar.set_description(f"Calculating {idx:%b %d}")
+    for n, (idx, _) in pbar:
         pbar.set_description(f"Calculating {idx:%b %d %H:%M}")
 
         # calculate heat balance for this point in time
         _evap_gain = evaporation_gain(
             evap_rate=evap_rate[n],
-            surface_area=surface_area,
-            latent_heat_of_evaporation=_current_water_latent_heat_of_vaporisation
-            / 1000,  # TODO - check units here
+            surface_area=surface_area * (1 - coverage_schedule[n]),
+            latent_heat_of_evaporation=_current_water_latent_heat_of_vaporisation,  # TODO - check units here
             water_density=_current_water_density,
         )
         q_evaporation.append(_evap_gain)
@@ -173,7 +189,7 @@ def main(
 
         _cond_gain = conduction_gain(
             surface_area=surface_area,
-            average_depth=avg_depth,
+            average_depth=average_depth,
             interface_u_value=ground_interface_u_value,
             soil_temperature=ground_temperature[n],
             water_temperature=_current_water_temperature,
@@ -199,7 +215,10 @@ def main(
             _energy_balance
             / (remaining_water_mass * _current_water_specific_heat_capacity)
         ) + _current_water_temperature  # C
-        rem_water_temp.append(remaining_water_temperature)
+        remaining_water_temperature.append(remaining_water_temperature)
+
+        # TODO - add water to pool in terms of energy rather than temperature
+
         # add water back into the body of water at a given temperature
         _current_water_temperature = np.average(
             [supply_water_temperature[n], remaining_water_temperature],
@@ -223,7 +242,7 @@ def main(
             * (target_water_temperature[n] - _current_water_temperature)
         )
 
-    # combine heat gains into a single dataframe for plotting
+    # combine heat gains into a single dataframe
     q_solar = pd.Series(q_solar, index=epw_df.index, name="Q_Solar (W)")
     q_occupants = pd.Series(q_occupants, index=epw_df.index, name="Q_Occupants (W)")
     q_longwave = pd.Series(q_longwave, index=epw_df.index, name="Q_Longwave (W)")
@@ -244,8 +263,8 @@ def main(
         index=epw_df.index,
         name="Water Temperature [without htg/clg] (C)",
     )
-    rem_water_temp = pd.Series(
-        rem_water_temp,
+    remaining_water_temperature = pd.Series(
+        remaining_water_temperature,
         index=epw_df.index,
         name="Water Temperature [prior to resupply] (C)",
     )
@@ -258,10 +277,10 @@ def main(
             q_conduction,
             q_evaporation,
             q_convection,
-            # q_conditioning_water_temp,
+            q_conditioning_water_temp,
             q_conditioning_heat_balance,
             water_temperature_without_htgclg,
-            rem_water_temp,
+            remaining_water_temperature,
             air_temperature,
             sky_temperature,
             air_pressure,
@@ -274,17 +293,6 @@ def main(
         axis=1,
     )
 
-    # fig, [ax0, ax1] = plt.subplots(2, 1, figsize=(8, 8))
-    # plot_timeseries(gains_df, ax=ax0)
-    # plot_monthly_balance(gains_df, ax=ax1)
-    # plt.tight_layout()
-    # fig.show()
-
-    # fig, ax = plt.subplots(1, 1, figsize=(8, 4))
-    # ax.plot(water_temperature)
-    # plt.tight_layout()
-    # plt.show()
-
     return gains_df
 
 
@@ -295,15 +303,14 @@ if __name__ == "__main__":
 
     # create occupant profile
     n_occupants = 0.1  # approx 625 max occupancy of an olympic pool
-    idx = pd.date_range("2017-01-01 00:00:00", "2017-12-31 23:00:00", freq="H")
+    datetimes = pd.date_range("2017-01-01 00:00:00", "2017-12-31 23:00:00", freq="H")
     n_occupants = np.where(
-        idx.hour.isin([10, 11, 13, 14, 17]),
+        datetimes.hour.isin([10, 11, 13, 14, 17]),
         n_occupants,
-        np.where(idx.hour.isin([8, 9, 12, 15, 16]), n_occupants * 0.5, 0),
+        np.where(datetimes.hour.isin([8, 9, 12, 15, 16]), n_occupants * 0.5, 0),
     )
 
     main(
         epw_file=epw_file,
         n_occupants=n_occupants,
-        # water_salinity=0,  # 0.0038,
     )
