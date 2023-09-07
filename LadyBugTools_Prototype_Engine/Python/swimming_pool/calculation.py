@@ -62,7 +62,8 @@ def main(
         epw=epw, wind_height_above_water=wind_height_above_water
     )
 
-    # create coverage schedule, which is a multiplier on evaporation rate
+    # create coverage schedule, which is a multiplier on values which are exposed to air/sun
+    # TODO- Implement and add effecrts to various heat gain mehcnaisms
     if coverage_schedule is None:
         coverage_schedule = pd.Series(
             np.zeros(len(epw_df)), name="Water Coverage (dimensionless)"
