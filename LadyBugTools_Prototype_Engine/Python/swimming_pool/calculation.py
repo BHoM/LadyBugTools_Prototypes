@@ -78,10 +78,11 @@ def main(
     )
 
     # create coverage schedule, which is a multiplier on values which are exposed to air/sun
-    # TODO- Implement and add effecrts to various heat gain mehcnaisms
+    # TODO- Implement and add effecrts to various heat gain mehcnaisms (done)
     if coverage_schedule is None:
         coverage_schedule = pd.Series(
             np.zeros(len(epw_df)), name="Water Coverage (dimensionless)"
+            index=ground_temperature.index
         )
     elif isinstance(coverage_schedule, (float, int)):
         if coverage_schedule > 1 or coverage_schedule < 0:
@@ -89,10 +90,12 @@ def main(
         coverage_schedule = pd.Series(
             np.zeros(len(epw_df)) * coverage_schedule,
             name="Water Coverage (dimensionless)",
+            index=ground_temperature.index
         )
     else:
         coverage_schedule = pd.Series(
             coverage_schedule, name="Water Coverage (dimensionless)"
+            index=ground_temperature.index
         )
 
     # create supply water temperature profile
@@ -112,7 +115,8 @@ def main(
             name="Supply Water Temperature (C)",
             index=ground_temperature.index,
         )
-
+    supply_water_temperature.clip(lower=0, inplace=True)
+    
     # create target water temperature profile
     if target_water_temperature is None:
         target_water_temperature = ground_temperature.rename(
@@ -148,7 +152,7 @@ def main(
 
     # create solar gain
     q_solar = shortwave_gain(
-        surface_area=surface_area,
+        surface_area=surface_area*(1-coverage_schedule),
         insolation=insolation,
     )
 
@@ -197,14 +201,14 @@ def main(
         q_convection.append(_conv_gain)
 
         _lwav_gain = longwave_gain(
-            surface_area=surface_area,
+            surface_area=surface_area * (1-coverage_schedule[n]),
             sky_temperature=sky_temperature[n],
             water_temperature=_current_water_temperature,
         )
         q_longwave.append(_lwav_gain)
 
         _cond_gain = conduction_gain(
-            surface_area=surface_area,
+            surface_area=surface_area * (1-coverage_schedule[n]),
             average_depth=average_depth,
             interface_u_value=ground_interface_u_value,
             soil_temperature=ground_temperature[n],
@@ -224,7 +228,7 @@ def main(
         q_energy_balance.append(_energy_balance)
 
         # calculate resultant temperature in remaining water
-        volume_water_lost = (evap_rate[n] * surface_area) / 1000  # m3
+        volume_water_lost = (evap_rate[n] * (surface_area * (1-coverage_schedule[n]))) / 1000  # m3
         remaining_water_volume = container_volume - volume_water_lost  # m3
         remaining_water_mass = remaining_water_volume * _current_water_density  # kg
         _remaining_water_temperature = (
