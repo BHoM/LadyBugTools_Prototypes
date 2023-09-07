@@ -81,7 +81,8 @@ def main(
     # TODO- Implement and add effecrts to various heat gain mehcnaisms (done)
     if coverage_schedule is None:
         coverage_schedule = pd.Series(
-            np.zeros(len(epw_df)), name="Water Coverage (dimensionless)"
+            np.zeros(len(epw_df)), 
+            name="Water Coverage (dimensionless)",
             index=ground_temperature.index
         )
     elif isinstance(coverage_schedule, (float, int)):
@@ -94,7 +95,7 @@ def main(
         )
     else:
         coverage_schedule = pd.Series(
-            coverage_schedule, name="Water Coverage (dimensionless)"
+            coverage_schedule, name="Water Coverage (dimensionless)",
             index=ground_temperature.index
         )
 
