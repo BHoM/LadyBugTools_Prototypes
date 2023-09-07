@@ -9,19 +9,34 @@ from ladybugtools_toolkit.ladybug_extension.epw import (
 )
 from tqdm import tqdm
 
-from .evaporation_convection import (
-    evaporation_rate,
-    evaporation_gain,
-    convection_gain,
-    density_water,
-    specific_heat_water,
-    latent_heat_of_vaporisation,
-)
-from .conduction import conduction_gain
-from .longwave import longwave_gain
-from .shortwave import shortwave_gain
-from .occupants import occupant_gain
-from .plot import plot_monthly_balance, plot_timeseries
+try:
+    from .evaporation_convection import (
+        evaporation_rate,
+        evaporation_gain,
+        convection_gain,
+        density_water,
+        specific_heat_water,
+        latent_heat_of_vaporisation,
+    )
+    from .conduction import conduction_gain
+    from .longwave import longwave_gain
+    from .shortwave import shortwave_gain
+    from .occupants import occupant_gain
+    from .plot import plot_monthly_balance, plot_timeseries
+except:
+    from evaporation_convection import (
+        evaporation_rate,
+        evaporation_gain,
+        convection_gain,
+        density_water,
+        specific_heat_water,
+        latent_heat_of_vaporisation,
+    )
+    from conduction import conduction_gain
+    from longwave import longwave_gain
+    from shortwave import shortwave_gain
+    from occupants import occupant_gain
+    from plot import plot_monthly_balance, plot_timeseries
 
 
 def main(
@@ -212,17 +227,17 @@ def main(
         volume_water_lost = (evap_rate[n] * surface_area) / 1000  # m3
         remaining_water_volume = container_volume - volume_water_lost  # m3
         remaining_water_mass = remaining_water_volume * _current_water_density  # kg
-        remaining_water_temperature = (
+        _remaining_water_temperature = (
             _energy_balance
             / (remaining_water_mass * _current_water_specific_heat_capacity)
         ) + _current_water_temperature  # C
-        remaining_water_temperature.append(remaining_water_temperature)
+        remaining_water_temperature.append(_remaining_water_temperature)
 
         # TODO - add water to pool in terms of energy rather than temperature
 
         # add water back into the body of water at a given temperature
         _current_water_temperature = np.average(
-            [supply_water_temperature[n], remaining_water_temperature],
+            [supply_water_temperature[n], _remaining_water_temperature],
             weights=[volume_water_lost, remaining_water_volume],
         )
         water_temperature_without_htgclg.append(_current_water_temperature)
@@ -313,5 +328,4 @@ if __name__ == "__main__":
 
     main(
         epw_file=epw_file,
-        n_occupants=n_occupants,
     )
