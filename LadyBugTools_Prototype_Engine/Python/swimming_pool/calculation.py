@@ -1,3 +1,4 @@
+from asyncio.windows_events import NULL
 from typing import Tuple, Union
 
 import matplotlib.pyplot as plt
@@ -120,9 +121,7 @@ def main(
     
     # create target water temperature profile
     if target_water_temperature is None:
-        target_water_temperature = ground_temperature.rename(
-            "Target Water Temperature (C)"
-        )
+        pass
     elif isinstance(target_water_temperature, (float, int)):
         target_water_temperature = pd.Series(
             np.ones(len(air_temperature)) * target_water_temperature,
@@ -161,9 +160,14 @@ def main(
     container_volume = surface_area * average_depth
 
     # set initial properties for water prior to looping through
-    _current_water_temperature = (
-        ground_temperature.mean()
-    )  # use avg ground temp for year as starting water temp
+    if target_water_temperature is None:
+        _current_water_temperature = (
+            supply_water_temperature[0]
+        )  # use initial supply water temp as initial temperature
+    else:
+        _current_water_temperature = (
+            target_water_temperature[0]
+        ) # use initial target water temp as initial temperature
     _current_water_density = density_water(_current_water_temperature)  # kg/m3
     _current_water_specific_heat_capacity = (
         specific_heat_water(_current_water_temperature) * 1000
@@ -256,12 +260,16 @@ def main(
             _current_water_temperature, air_pressure[n]
         )  # kJ/kg
 
-        # TODO - calculate the heat required to reach the target water temperature
-        q_htg_clg = (
-            (_current_water_density * container_volume)
-            * _current_water_specific_heat_capacity
-            * (target_water_temperature[n] - _current_water_temperature)
-        )
+        # calculate the heat required to reach the target water temperature
+        if target_water_temperature is not None:
+            q_htg_clg.append(
+                (_current_water_density * container_volume)
+                * _current_water_specific_heat_capacity
+                * (target_water_temperature[n] - _current_water_temperature)
+            )
+            _current_water_temperature = target_water_temperature[n]
+        else:
+            q_htg_clg.append(0)
 
     # combine heat gains into a single dataframe
     q_solar = pd.Series(q_solar, index=epw_df.index, name="Q_Solar (W)")
