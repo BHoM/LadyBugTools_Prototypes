@@ -40,6 +40,9 @@ except:
     from plot import plot_monthly_balance, plot_timeseries
 
 
+# TODO - implement target temperature schedule
+# TODO - implement target temp band
+
 def main(
     epw_file: str,
     surface_area: float = 1,
@@ -55,7 +58,6 @@ def main(
 
     Assumptions:
     - The pool is a rectangular prism
-    - The pool is filled with water of a fixed salinity (0.0038 kg/kg, for seawater typical of Persian Gulf, from which thermophysical properties are derived)
     - Water is supplied to the pool at the same rate as it is evaporated, so the water volume remains constant.
 
     Args:
@@ -79,7 +81,7 @@ def main(
     )
 
     # create coverage schedule, which is a multiplier on values which are exposed to air/sun
-    # TODO- Implement and add effecrts to various heat gain mehcnaisms (done)
+
     if coverage_schedule is None:
         coverage_schedule = pd.Series(
             np.zeros(len(epw_df)), 
@@ -162,7 +164,8 @@ def main(
     # set initial properties for water prior to looping through
     if target_water_temperature is None:
         _current_water_temperature = (
-            supply_water_temperature[0]
+            #supply_water_temperature[0]
+            29
         )  # use initial supply water temp as initial temperature
     else:
         _current_water_temperature = (
@@ -192,7 +195,7 @@ def main(
         _evap_gain = evaporation_gain(
             evap_rate=evap_rate[n],
             surface_area=surface_area * (1 - coverage_schedule[n]),
-            latent_heat_of_evaporation=_current_water_latent_heat_of_vaporisation,  # TODO - check units here
+            latent_heat_of_evaporation=_current_water_latent_heat_of_vaporisation,
             water_density=_current_water_density,
         )
         q_evaporation.append(_evap_gain)
@@ -213,7 +216,7 @@ def main(
         q_longwave.append(_lwav_gain)
 
         _cond_gain = conduction_gain(
-            surface_area=surface_area * (1-coverage_schedule[n]),
+            surface_area=surface_area,
             average_depth=average_depth,
             interface_u_value=ground_interface_u_value,
             soil_temperature=ground_temperature[n],
@@ -237,24 +240,24 @@ def main(
         remaining_water_volume = container_volume - volume_water_lost  # m3
         remaining_water_mass = remaining_water_volume * _current_water_density  # kg
         _remaining_water_temperature = (
-            _energy_balance
-            / (remaining_water_mass * _current_water_specific_heat_capacity)
+            (_energy_balance*(3600/1000))
+            / (remaining_water_mass * _current_water_specific_heat_capacity)                #this is getting good numbers assuming spec heat cap is in j/kgk (usually -0.0001C for 1*1*2(d) pool)
         ) + _current_water_temperature  # C
         remaining_water_temperature.append(_remaining_water_temperature)
-
-        # TODO - add water to pool in terms of energy rather than temperature
 
         # add water back into the body of water at a given temperature
         _current_water_temperature = np.average(
             [supply_water_temperature[n], _remaining_water_temperature],
-            weights=[volume_water_lost, remaining_water_volume],
+            weights=[volume_water_lost, remaining_water_volume],                            #gets temp after adding supply
         )
         water_temperature_without_htgclg.append(_current_water_temperature)
 
+        if _current_water_temperature<0.1:
+            _current_water_temperature = 0.1
         # recalculate properties for water at this temperature
         _current_water_density = density_water(_current_water_temperature)  # kg/m3
         _current_water_specific_heat_capacity = (
-            specific_heat_water(_current_water_temperature) * 1000
+            specific_heat_water(_current_water_temperature)*1000
         )  # J/kg/K
         _current_water_latent_heat_of_vaporisation = latent_heat_of_vaporisation(
             _current_water_temperature, air_pressure[n]
@@ -263,9 +266,9 @@ def main(
         # calculate the heat required to reach the target water temperature
         if target_water_temperature is not None:
             q_htg_clg.append(
-                (_current_water_density * container_volume)
+                ((_current_water_density * container_volume)
                 * _current_water_specific_heat_capacity
-                * (target_water_temperature[n] - _current_water_temperature)
+                * (target_water_temperature[n] - _current_water_temperature))*(1000/3600)         #this is getting bad numbers for some reason?
             )
             _current_water_temperature = target_water_temperature[n]
         else:
