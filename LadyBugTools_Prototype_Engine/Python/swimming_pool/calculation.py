@@ -53,6 +53,8 @@ def main(
     ground_interface_u_value: float = 0.25,
     wind_height_above_water: float = 1,
     coverage_schedule: Union[int, Tuple[int], pd.Series] = None,
+    conditioning_schedule: Union[int, Tuple[int], pd.Series] = None,
+    target_range: float = 1,
 ):
     """
 
@@ -61,6 +63,7 @@ def main(
     - Water is supplied to the pool at the same rate as it is evaporated, so the water volume remains constant.
 
     Args:
+    target_range : the target temperature range is used for conditioning, used like target_water_temperature +/- target_range
 
     """
 
@@ -79,9 +82,7 @@ def main(
     evap_rate = evaporation_rate(
         epw=epw, wind_height_above_water=wind_height_above_water
     )
-
-    # create coverage schedule, which is a multiplier on values which are exposed to air/sun
-
+     
     if coverage_schedule is None:
         coverage_schedule = pd.Series(
             np.zeros(len(epw_df)), 
@@ -136,7 +137,26 @@ def main(
             name="Target Water Temperature (C)",
             index=air_temperature.index,
         )
-
+     
+    # create conditioning schedule, which is a multiplier on target_water_temperature
+    if conditioning_schedule is None:
+        conditioning_schedule = pd.Series(
+            np.full(len(epw_df), True), 
+            name="Water Conditioning (dimensionless)",
+            index=ground_temperature.index
+        )
+    elif isinstance(conditioning_schedule, (bool)):
+        conditioning_schedule = pd.Series(
+        np.full(len(epw_df), conditioning_schedule), 
+        name="Water Conditioning (dimensionless)",
+        index=ground_temperature.index
+        )
+    else:
+        conditioning_schedule = pd.Series(
+            conditioning_schedule, name="Water Conditioning (dimensionless)",
+            index=ground_temperature.index
+        )
+    
     # create occupant gain
     if isinstance(n_occupants, (float, int)):
         n_occupants = pd.Series(
@@ -165,12 +185,12 @@ def main(
     if target_water_temperature is None:
         _current_water_temperature = (
             #supply_water_temperature[0]
-            29
+            28
         )  # use initial supply water temp as initial temperature
     else:
         _current_water_temperature = (
-            target_water_temperature[0]
-        ) # use initial target water temp as initial temperature
+            target_water_temperature[0]-target_range
+        ) # use initial target water temp low range as initial temperature
     _current_water_density = density_water(_current_water_temperature)  # kg/m3
     _current_water_specific_heat_capacity = (
         specific_heat_water(_current_water_temperature) * 1000
@@ -188,7 +208,8 @@ def main(
     water_temperature_without_htgclg = []
     remaining_water_temperature = []
     pbar = tqdm(list(enumerate(epw_df.iterrows())))
-    for n, (idx, _) in pbar:
+    x = 512
+    for i,(n, (idx, _)) in enumerate(pbar):
         pbar.set_description(f"Calculating {idx:%b %d %H:%M}")
 
         # calculate heat balance for this point in time
@@ -234,45 +255,72 @@ def main(
             + q_occupants[n]
         )
         q_energy_balance.append(_energy_balance)
+        if i>x: print("evap gain:" + str(_evap_gain))
+        if i>x: print("conv gain:" + str(_conv_gain))
+        if i>x: print("lwav gain:" + str(_lwav_gain))
+        if i>x: print("cond gain:" + str(_cond_gain))
+        if i>x: print("q solar:" + str(q_solar[n]))
+        if i>x: print("q occupants:" + str(q_occupants[n]))
+        if i>x: print("net energy loss:" + str(_energy_balance))
+        if i>x: print("temp before loss:" + str(_current_water_temperature))
 
         # calculate resultant temperature in remaining water
         volume_water_lost = (evap_rate[n] * (surface_area * (1-coverage_schedule[n]))) / 1000  # m3
+        if i>x: print("vol water lost:" + str(volume_water_lost))
         remaining_water_volume = container_volume - volume_water_lost  # m3
+        if i>x: print("remaining water vol:" + str(remaining_water_volume))
         remaining_water_mass = remaining_water_volume * _current_water_density  # kg
-        _remaining_water_temperature = (
-            (_energy_balance*(3600/1000))
-            / (remaining_water_mass * _current_water_specific_heat_capacity)                #this is getting good numbers assuming spec heat cap is in j/kgk (usually -0.0001C for 1*1*2(d) pool)
-        ) + _current_water_temperature  # C
+        if i>x: print("remaining water mass:" + str(remaining_water_mass))
+        _remaining_water_temperature = ((_energy_balance*(3600))/ (remaining_water_mass * _current_water_specific_heat_capacity)) + _current_water_temperature  # C
+        if i>x: print("remaining water temp:" + str(_remaining_water_temperature))
         remaining_water_temperature.append(_remaining_water_temperature)
+        if i>x: print("woo!")
 
         # add water back into the body of water at a given temperature
         _current_water_temperature = np.average(
             [supply_water_temperature[n], _remaining_water_temperature],
-            weights=[volume_water_lost, remaining_water_volume],                            #gets temp after adding supply
+            weights=[volume_water_lost, remaining_water_volume],
         )
+        if i>x: print("water temp after supply:" + str(_current_water_temperature))        
+        
         water_temperature_without_htgclg.append(_current_water_temperature)
 
-        if _current_water_temperature<0.1:
-            _current_water_temperature = 0.1
         # recalculate properties for water at this temperature
         _current_water_density = density_water(_current_water_temperature)  # kg/m3
         _current_water_specific_heat_capacity = (
             specific_heat_water(_current_water_temperature)*1000
-        )  # J/kg/K
+        )  # J/kg.K
         _current_water_latent_heat_of_vaporisation = latent_heat_of_vaporisation(
             _current_water_temperature, air_pressure[n]
         )  # kJ/kg
 
         # calculate the heat required to reach the target water temperature
         if target_water_temperature is not None:
-            q_htg_clg.append(
-                ((_current_water_density * container_volume)
-                * _current_water_specific_heat_capacity
-                * (target_water_temperature[n] - _current_water_temperature))*(1000/3600)         #this is getting bad numbers for some reason?
-            )
-            _current_water_temperature = target_water_temperature[n]
+            if conditioning_schedule[n]:
+                if _current_water_temperature<(target_water_temperature[n]-target_range):
+                    q_htg_clg.append(
+                        ((_current_water_density * container_volume)
+                    * _current_water_specific_heat_capacity
+                    * ((target_water_temperature[n]-target_range) - _current_water_temperature))*(1000/3600)
+                    )
+                    _current_water_temperature = target_water_temperature[n]-target_range
+                elif _current_water_temperature>(target_water_temperature[n]+target_range):
+                    q_htg_clg.append(
+                        ((_current_water_density * container_volume)
+                    * _current_water_specific_heat_capacity
+                    * ((target_water_temperature[n]+target_range) - _current_water_temperature))*(1000/3600)
+                    )
+                    _current_water_temperature = target_water_temperature[n]+target_range
+                else:
+                    q_htg_clg.append(0)
+            else:
+                q_htg_clg.append(0)
         else:
             q_htg_clg.append(0)
+        if i>x: print ("temp before step:" + str(_current_water_temperature))
+        if i>x: print("")
+        if i>x+3:
+            return None
 
     # combine heat gains into a single dataframe
     q_solar = pd.Series(q_solar, index=epw_df.index, name="Q_Solar (W)")
