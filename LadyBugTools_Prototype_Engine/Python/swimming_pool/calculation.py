@@ -1,7 +1,5 @@
-from asyncio.windows_events import NULL
 from typing import Tuple, Union
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from ladybugtools_toolkit.ladybug_extension.epw import (
@@ -43,6 +41,7 @@ except:
 # TODO - implement target temperature schedule
 # TODO - implement target temp band
 
+
 def main(
     epw_file: str,
     surface_area: float = 1,
@@ -73,108 +72,123 @@ def main(
         epw=epw, include_additional=True, ground_temperature_depth=average_depth
     ).droplevel([0, 1], axis=1)
 
-    air_temperature = epw_df["Dry Bulb Temperature (C)"]
-    sky_temperature = epw_df["Sky Temperature (C)"]
-    air_pressure = epw_df["Atmospheric Station Pressure (Pa)"]
-    ground_temperature = epw_df["Ground Temperature (C)"]
-    insolation = epw_df["Global Horizontal Radiation (Wh/m2)"]
+    air_temperature = epw_df["Dry Bulb Temperature (C)"].rename(
+        ("Params", "Air Temperature (C)")
+    )
+    sky_temperature = epw_df["Sky Temperature (C)"].rename(
+        ("Params", "Sky Temperature (C)")
+    )
+    air_pressure = epw_df["Atmospheric Station Pressure (Pa)"].rename(
+        ("Params", "Air Pressure (Pa)")
+    )
+    ground_temperature = epw_df["Ground Temperature (C)"].rename(
+        ("Params", "Ground Temperature (C)")
+    )
+    insolation = epw_df["Global Horizontal Radiation (Wh/m2)"].rename(
+        ("Params", "Insolation (Wh/m2)")
+    )
 
     evap_rate = evaporation_rate(
         epw=epw, wind_height_above_water=wind_height_above_water
-    )
-     
+    ).rename(("Params", "Evaporation Rate (l/m2/hr)"))
+
+    # create coverage schedule, which is a multiplier on values which are exposed to air/sun
+    coverage_name = ("Params", "Water Coverage (dimensionless)")
     if coverage_schedule is None:
         coverage_schedule = pd.Series(
-            np.zeros(len(epw_df)), 
-            name="Water Coverage (dimensionless)",
-            index=ground_temperature.index
+            np.zeros(len(epw_df)),
+            name=coverage_name,
+            index=ground_temperature.index,
         )
     elif isinstance(coverage_schedule, (float, int)):
         if coverage_schedule > 1 or coverage_schedule < 0:
             raise ValueError("Coverage schedule must be between 0 and 1 (inclusive)")
         coverage_schedule = pd.Series(
             np.zeros(len(epw_df)) * coverage_schedule,
-            name="Water Coverage (dimensionless)",
-            index=ground_temperature.index
+            name=coverage_name,
+            index=ground_temperature.index,
         )
     else:
         coverage_schedule = pd.Series(
-            coverage_schedule, name="Water Coverage (dimensionless)",
-            index=ground_temperature.index
+            coverage_schedule,
+            name=coverage_name,
+            index=ground_temperature.index,
         )
 
     # create supply water temperature profile
+    supply_tmp_name = ("Params", "Supply Water Temperature (C)")
     if supply_water_temperature is None:
-        supply_water_temperature = ground_temperature.rename(
-            "Supply Water Temperature (C)"
-        )
+        supply_water_temperature = ground_temperature.rename(supply_tmp_name)
     elif isinstance(supply_water_temperature, (float, int)):
         supply_water_temperature = pd.Series(
             np.ones(len(ground_temperature)) * supply_water_temperature,
-            name="Supply Water Temperature (C)",
+            name=supply_tmp_name,
             index=ground_temperature.index,
         )
     else:
         supply_water_temperature = pd.Series(
             supply_water_temperature,
-            name="Supply Water Temperature (C)",
+            name=supply_tmp_name,
             index=ground_temperature.index,
         )
     supply_water_temperature.clip(lower=0, inplace=True)
-    
+
     # create target water temperature profile
+    setpt_name = ("Params", "Target Water Temperature (C)")
     if target_water_temperature is None:
         pass
     elif isinstance(target_water_temperature, (float, int)):
         target_water_temperature = pd.Series(
             np.ones(len(air_temperature)) * target_water_temperature,
-            name="Target Water Temperature (C)",
+            name=setpt_name,
             index=air_temperature.index,
         )
     else:
         target_water_temperature = pd.Series(
             target_water_temperature,
-            name="Target Water Temperature (C)",
+            name=setpt_name,
             index=air_temperature.index,
         )
-     
+
     # create conditioning schedule, which is a multiplier on target_water_temperature
     if conditioning_schedule is None:
         conditioning_schedule = pd.Series(
-            np.full(len(epw_df), True), 
+            np.full(len(epw_df), True),
             name="Water Conditioning (dimensionless)",
-            index=ground_temperature.index
+            index=ground_temperature.index,
         )
     elif isinstance(conditioning_schedule, (bool)):
         conditioning_schedule = pd.Series(
-        np.full(len(epw_df), conditioning_schedule), 
-        name="Water Conditioning (dimensionless)",
-        index=ground_temperature.index
+            np.full(len(epw_df), conditioning_schedule),
+            name="Water Conditioning (dimensionless)",
+            index=ground_temperature.index,
         )
     else:
         conditioning_schedule = pd.Series(
-            conditioning_schedule, name="Water Conditioning (dimensionless)",
-            index=ground_temperature.index
+            conditioning_schedule,
+            name="Water Conditioning (dimensionless)",
+            index=ground_temperature.index,
         )
-    
+
     # create occupant gain
+    occ_name = ("Params", "Number of Occupants (dimensionless)")
     if isinstance(n_occupants, (float, int)):
         n_occupants = pd.Series(
             np.ones(len(epw_df)) * n_occupants,
-            name="Number of Occupants (dimensionless)",
+            name=occ_name,
             index=air_temperature.index,
         )
     else:
         n_occupants = pd.Series(
             n_occupants,
-            name="Number of Occupants (dimensionless)",
+            name=occ_name,
             index=air_temperature.index,
         )
     q_occupants = occupant_gain(n_people=n_occupants)
 
     # create solar gain
     q_solar = shortwave_gain(
-        surface_area=surface_area*(1-coverage_schedule),
+        surface_area=surface_area * (1 - coverage_schedule),
         insolation=insolation,
     )
 
@@ -184,13 +198,13 @@ def main(
     # set initial properties for water prior to looping through
     if target_water_temperature is None:
         _current_water_temperature = (
-            #supply_water_temperature[0]
-            28
-        )  # use initial supply water temp as initial temperature
+            # supply_water_temperature[0]
+            28  # use initial supply water temp as initial temperature
+        )
     else:
         _current_water_temperature = (
-            target_water_temperature[0]-target_range
-        ) # use initial target water temp low range as initial temperature
+            target_water_temperature[0] - target_range
+        )  # use initial target water temp low range as initial temperature
     _current_water_density = density_water(_current_water_temperature)  # kg/m3
     _current_water_specific_heat_capacity = (
         specific_heat_water(_current_water_temperature) * 1000
@@ -209,7 +223,7 @@ def main(
     remaining_water_temperature = []
     pbar = tqdm(list(enumerate(epw_df.iterrows())))
     x = 512
-    for i,(n, (idx, _)) in enumerate(pbar):
+    for i, (n, (idx, _)) in enumerate(pbar):
         pbar.set_description(f"Calculating {idx:%b %d %H:%M}")
 
         # calculate heat balance for this point in time
@@ -230,7 +244,7 @@ def main(
         q_convection.append(_conv_gain)
 
         _lwav_gain = longwave_gain(
-            surface_area=surface_area * (1-coverage_schedule[n]),
+            surface_area=surface_area * (1 - coverage_schedule[n]),
             sky_temperature=sky_temperature[n],
             water_temperature=_current_water_temperature,
         )
@@ -255,40 +269,59 @@ def main(
             + q_occupants[n]
         )
         q_energy_balance.append(_energy_balance)
-        if i>x: print("evap gain:" + str(_evap_gain))
-        if i>x: print("conv gain:" + str(_conv_gain))
-        if i>x: print("lwav gain:" + str(_lwav_gain))
-        if i>x: print("cond gain:" + str(_cond_gain))
-        if i>x: print("q solar:" + str(q_solar[n]))
-        if i>x: print("q occupants:" + str(q_occupants[n]))
-        if i>x: print("net energy loss:" + str(_energy_balance))
-        if i>x: print("temp before loss:" + str(_current_water_temperature))
+        if i > x:
+            print("evap gain:" + str(_evap_gain))
+        if i > x:
+            print("conv gain:" + str(_conv_gain))
+        if i > x:
+            print("lwav gain:" + str(_lwav_gain))
+        if i > x:
+            print("cond gain:" + str(_cond_gain))
+        if i > x:
+            print("q solar:" + str(q_solar[n]))
+        if i > x:
+            print("q occupants:" + str(q_occupants[n]))
+        if i > x:
+            print("net energy loss:" + str(_energy_balance))
+        if i > x:
+            print("temp before loss:" + str(_current_water_temperature))
 
         # calculate resultant temperature in remaining water
-        volume_water_lost = (evap_rate[n] * (surface_area * (1-coverage_schedule[n]))) / 1000  # m3
-        if i>x: print("vol water lost:" + str(volume_water_lost))
+        volume_water_lost = (
+            evap_rate[n] * (surface_area * (1 - coverage_schedule[n]))
+        ) / 1000  # m3
+        if i > x:
+            print("vol water lost:" + str(volume_water_lost))
         remaining_water_volume = container_volume - volume_water_lost  # m3
-        if i>x: print("remaining water vol:" + str(remaining_water_volume))
+        if i > x:
+            print("remaining water vol:" + str(remaining_water_volume))
         remaining_water_mass = remaining_water_volume * _current_water_density  # kg
-        if i>x: print("remaining water mass:" + str(remaining_water_mass))
-        _remaining_water_temperature = ((_energy_balance*(3600))/ (remaining_water_mass * _current_water_specific_heat_capacity)) + _current_water_temperature  # C
-        if i>x: print("remaining water temp:" + str(_remaining_water_temperature))
+        if i > x:
+            print("remaining water mass:" + str(remaining_water_mass))
+        _remaining_water_temperature = (
+            (_energy_balance * (3600))
+            / (remaining_water_mass * _current_water_specific_heat_capacity)
+        ) + _current_water_temperature  # C
+        if i > x:
+            print("remaining water temp:" + str(_remaining_water_temperature))
         remaining_water_temperature.append(_remaining_water_temperature)
-        if i>x: print("woo!")
+        if i > x:
+            print("woo!")
 
         # add water back into the body of water at a given temperature
         _current_water_temperature = np.average(
             [supply_water_temperature[n], _remaining_water_temperature],
             weights=[volume_water_lost, remaining_water_volume],
         )
-        if i>x: print("water temp after supply:" + str(_current_water_temperature))        
-        
+        if i > x:
+            print("water temp after supply:" + str(_current_water_temperature))
+
         water_temperature_without_htgclg.append(_current_water_temperature)
 
         # recalculate properties for water at this temperature
         _current_water_density = density_water(_current_water_temperature)  # kg/m3
         _current_water_specific_heat_capacity = (
-            specific_heat_water(_current_water_temperature)*1000
+            specific_heat_water(_current_water_temperature) * 1000
         )  # J/kg.K
         _current_water_latent_heat_of_vaporisation = latent_heat_of_vaporisation(
             _current_water_temperature, air_pressure[n]
@@ -296,57 +329,89 @@ def main(
 
         # calculate the heat required to reach the target water temperature
         if target_water_temperature is not None:
-            if conditioning_schedule[n]:
-                if _current_water_temperature<(target_water_temperature[n]-target_range):
+            if conditioning_schedule[n]:  #
+                if _current_water_temperature < (
+                    target_water_temperature[n] - target_range
+                ):
                     q_htg_clg.append(
-                        ((_current_water_density * container_volume)
-                    * _current_water_specific_heat_capacity
-                    * ((target_water_temperature[n]-target_range) - _current_water_temperature))*(1000/3600)
+                        (
+                            (_current_water_density * container_volume)
+                            * _current_water_specific_heat_capacity
+                            * (
+                                (target_water_temperature[n] - target_range)
+                                - _current_water_temperature
+                            )
+                        )
+                        * (1000 / 3600)
                     )
-                    _current_water_temperature = target_water_temperature[n]-target_range
-                elif _current_water_temperature>(target_water_temperature[n]+target_range):
+                    _current_water_temperature = (
+                        target_water_temperature[n] - target_range
+                    )
+                elif _current_water_temperature > (
+                    target_water_temperature[n] + target_range
+                ):
                     q_htg_clg.append(
-                        ((_current_water_density * container_volume)
-                    * _current_water_specific_heat_capacity
-                    * ((target_water_temperature[n]+target_range) - _current_water_temperature))*(1000/3600)
+                        (
+                            (_current_water_density * container_volume)
+                            * _current_water_specific_heat_capacity
+                            * (
+                                (target_water_temperature[n] + target_range)
+                                - _current_water_temperature
+                            )
+                        )
+                        * (1000 / 3600)
                     )
-                    _current_water_temperature = target_water_temperature[n]+target_range
+                    _current_water_temperature = (
+                        target_water_temperature[n] + target_range
+                    )
                 else:
                     q_htg_clg.append(0)
             else:
                 q_htg_clg.append(0)
         else:
             q_htg_clg.append(0)
-        if i>x: print ("temp before step:" + str(_current_water_temperature))
-        if i>x: print("")
-        if i>x+3:
+        if i > x:
+            print("temp before step:" + str(_current_water_temperature))
+        if i > x:
+            print("")
+        if i > x + 3:
             return None
 
     # combine heat gains into a single dataframe
-    q_solar = pd.Series(q_solar, index=epw_df.index, name="Q_Solar (W)")
-    q_occupants = pd.Series(q_occupants, index=epw_df.index, name="Q_Occupants (W)")
-    q_longwave = pd.Series(q_longwave, index=epw_df.index, name="Q_Longwave (W)")
-    q_conduction = pd.Series(q_conduction, index=epw_df.index, name="Q_Conduction (W)")
-    q_evaporation = pd.Series(
-        q_evaporation, index=epw_df.index, name="Q_Evaporation (W)"
+    q_solar = pd.Series(q_solar, index=epw_df.index, name=("Gains", "Q_Solar (W)"))
+    q_occupants = pd.Series(
+        q_occupants, index=epw_df.index, name=("Gains", "Q_Occupants (W)")
     )
-    q_convection = pd.Series(q_convection, index=epw_df.index, name="Q_Convection (W)")
+    q_longwave = pd.Series(
+        q_longwave, index=epw_df.index, name=("Gains", "Q_Longwave (W)")
+    )
+    q_conduction = pd.Series(
+        q_conduction, index=epw_df.index, name=("Gains", "Q_Conduction (W)")
+    )
+    q_evaporation = pd.Series(
+        q_evaporation, index=epw_df.index, name=("Gains", "Q_Evaporation (W)")
+    )
+    q_convection = pd.Series(
+        q_convection, index=epw_df.index, name=("Gains", "Q_Convection (W)")
+    )
     q_conditioning_water_temp = pd.Series(
-        q_htg_clg, index=epw_df.index, name="Q_Conditioning [WATERTEMP] (W)"
+        q_htg_clg, index=epw_df.index, name=("Other", "Q_Conditioning [WATERTEMP] (W)")
     )
     q_conditioning_heat_balance = pd.Series(
-        q_energy_balance, index=epw_df.index, name="Q_Conditioning [HEATBALANCE] (W)"
+        q_energy_balance,
+        index=epw_df.index,
+        name=("Other", "Q_Conditioning [HEATBALANCE] (W)"),
     )
 
     water_temperature_without_htgclg = pd.Series(
         water_temperature_without_htgclg,
         index=epw_df.index,
-        name="Water Temperature [without htg/clg] (C)",
+        name=("Other", "Water Temperature [without htg/clg] (C)"),
     )
     remaining_water_temperature = pd.Series(
         remaining_water_temperature,
         index=epw_df.index,
-        name="Water Temperature [prior to resupply] (C)",
+        name=("Other", "Water Temperature [prior to resupply] (C)"),
     )
 
     gains_df = pd.concat(
