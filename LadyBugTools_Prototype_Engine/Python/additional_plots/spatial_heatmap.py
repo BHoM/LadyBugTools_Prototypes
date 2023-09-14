@@ -1,40 +1,34 @@
+import json
+import textwrap
+import warnings
+from pathlib import Path
+from typing import Any, Dict, List, Tuple, Union
+from warnings import warn
+
+import matplotlib.path as mpath
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from honeybee_radiance.sensorgrid import Sensor, SensorGrid
+from honeybee_radiance.view import View
+from honeybee_radiance_folder.folder import ModelFolder
 from ladybug.epw import EPW
-from pathlib import Path
-from typing import Union
-from ladybugtools_toolkit.honeybee_extension.results import (
-    load_npy,
-    load_ill,
-    make_annual,
-    load_pts,
-    collection_to_series,
-)
-import warnings
-from ladybugtools_toolkit.ladybug_extension.epw import epw_to_dataframe
 from ladybug.wea import Wea
+from ladybug_geometry.geometry3d.plane import Plane, Point3D
+from ladybugtools_toolkit.honeybee_extension.results import (
+    collection_to_series, load_ill, load_npy, load_pts, make_annual)
+from ladybugtools_toolkit.ladybug_extension.epw import epw_to_dataframe
+from ladybugtools_toolkit.plot.utilities import (contrasting_color,
+                                                 create_triangulation)
 from ladybugtools_toolkit.wind.direction_bins import DirectionBins, cardinality
-from ladybugtools_toolkit.plot.utilities import contrasting_color
-import textwrap
-from tqdm import tqdm
-from typing import Dict, List, Tuple, Union, Any
-
-import matplotlib.pyplot as plt
-import numpy as np
+from matplotlib.collections import PatchCollection
 from matplotlib.colors import BoundaryNorm, Colormap
 from matplotlib.figure import Figure
+from matplotlib.patches import PathPatch
 from matplotlib.tri.triangulation import Triangulation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-
-from honeybee_radiance.sensorgrid import SensorGrid, Sensor
-from honeybee_radiance.view import View
-from ladybugtools_toolkit.plot.utilities import create_triangulation
-from honeybee_radiance_folder.folder import ModelFolder
-import json
-from ladybug_geometry.geometry3d.plane import Plane, Point3D
 from scipy.spatial.distance import cdist
-from warnings import warn
+from tqdm import tqdm
 
 
 def sensorgrids_from_results_folder(results_folder: Path) -> Tuple[SensorGrid]:
@@ -231,3 +225,81 @@ def spatial_heatmapnew(
             cbar.add_lines(tcl)
 
     return ax
+
+def sensorgrid_to_patches(sensor_grid: SensorGrid) -> List[PathPatch]:
+    """Takes a HB SensorGrid and returns a list of matplotlib PathPatch objects
+
+    Args:
+        sensor_grid (SensorGrid):
+            A single HB SensorGrid object
+
+    Returns:
+        List[PathPatch]:
+            A list of matplotlib PathPatch objects
+    """
+
+    mesh = sensor_grid.mesh
+    vertices = mesh.face_vertices
+    patches = []
+    for face in vertices:
+        face_vertices = []
+        for vertice in face:
+            x , y = vertice.x, vertice.y
+            face_vertices.append([x,y])
+        starting_vertices = face_vertices[0]
+        face_vertices.append(starting_vertices)
+        path = mpath.Path(face_vertices)
+        patch = PathPatch(path, rasterized = True)
+        patches.append(patch)
+    return patches
+  
+def spatial_heatmap_patches(
+        patches: List[PathPatch],
+        values: List[float],
+        show_legend: bool = True,
+        cmap: Colormap = "viridis",
+        colorbar_label: str = "",
+        title: str ="",
+        legend_min: float = None, # TODO needs adding below
+        legend_max: float = None # TODO needs adding below
+) -> Figure:
+    """Generates a matplotlib Figure composed of a Patch for each value
+    similar to LBTs grasshopper spatial heatmap. 
+
+    Args:
+        patches (List[PathPatch]): Patches, such as generated from the mesh faces
+        values (List[float]): Associated values to colour each patch
+        show_legend (bool, optional): Toggle for including legend. Defaults to True.
+        cmap (Colormap, optional): Matplotlib colormap for patch / legend colours. Defaults to "viridis".
+        colorbar_label (str, optional): Label for the legend. Defaults to "".
+        title (str, optional): Main title for the figure. Defaults to "".
+        legend_min (float, optional): Minimum legend value. Defaults to None.
+        legend_max (float, optional): Maximum legend value. Defaults to None.
+
+    Returns:
+        Figure: A matplotlib Figure
+    """
+
+    p = PatchCollection(patches=patches, cmap = cmap, alpha=1)
+    p.set_array(values)
+
+    fig, ax = plt.subplots()
+    ax.add_collection(p)
+    ax.autoscale(True)
+    ax.axis('equal')
+    ax.axis('off')
+
+    if show_legend:
+        # Plot colorbar
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.1, aspect=20)
+
+        cbar = plt.colorbar(
+            p, cax=cax  # , format=mticker.StrMethodFormatter("{x:04.1f}")
+        )
+        cbar.outline.set_visible(False)
+        cbar.set_label(colorbar_label)
+
+    ax.set_title(title, ha="left", va="bottom", x=0)
+
+    return fig
