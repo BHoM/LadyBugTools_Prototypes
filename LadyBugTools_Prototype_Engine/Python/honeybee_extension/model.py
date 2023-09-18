@@ -1,9 +1,213 @@
-from honeybee.model import Model
-from honeybee.facetype import Wall, Floor, RoofCeiling, AirBoundary
+from honeybee.model import (
+    Model,
+    Face3D,
+    Wall,
+    AirBoundary,
+    Floor,
+    RoofCeiling,
+    AirBoundary,
+)
 import matplotlib.pyplot as plt
 from ladybug_geometry.geometry3d import Plane, LineSegment3D
-from typing import List
+from typing import List, Union
 from matplotlib.collections import PolyCollection
+from enum import Enum, auto
+
+
+class HbModelGeometry(Enum):
+    WALL = auto()
+    FLOOR = auto()
+    ROOFCEILING = auto()
+    AIRBOUNDARY = auto()
+    SHADE = auto()
+    APERTURE = auto()
+    DOOR = auto()
+
+    def get_geometry(self, model: Model) -> List[object]:
+        """Return the objects of a model that correspond to the type of object."""
+        if self == HbModelGeometry.WALL:
+            return [i.geometry for i in model.faces if isinstance(i.type, Wall)]
+        if self == HbModelGeometry.FLOOR:
+            return [i.geometry for i in model.faces if isinstance(i.type, Floor)]
+        if self == HbModelGeometry.ROOFCEILING:
+            return [i.geometry for i in model.faces if isinstance(i.type, RoofCeiling)]
+        if self == HbModelGeometry.AIRBOUNDARY:
+            return [i.geometry for i in model.faces if isinstance(i.type, AirBoundary)]
+        if self == HbModelGeometry.SHADE:
+            return [i.geometry for i in model.shades]
+        if self == HbModelGeometry.APERTURE:
+            return [i.geometry for i in model.apertures]
+        if self == HbModelGeometry.DOOR:
+            return [i.geometry for i in model.doors]
+        raise ValueError(f"Invalid SliceColoring: {self}")
+
+    def slice_polycollection(self, model: Model, plane: Plane) -> PolyCollection:
+        """Slice a model with a plane and return a matplotlib PolyCollection.
+
+        Args:
+            model (Model): A Honeybee model to slice.
+            plane (Plane): A Ladybug 3D Plane object to slice the model with.
+
+        Returns:
+            PolyCollection: A matplotlib PolyCollection object.
+        """
+
+        geometries = self.get_geometry(model)
+        line_segments = plane_intersections(geometries, plane)
+
+        return linesegments_to_polycollection(
+            line_segments=line_segments,
+            facecolor=self.facecolor,
+            edgecolor=self.edgecolor,
+            alpha=self.alpha,
+            linewidth=self.linewidth,
+            zorder=self.zorder,
+        )
+
+    @property
+    def facecolor(self) -> str:
+        """Return the facecolor for the geometry type."""
+        if self == HbModelGeometry.WALL:
+            return "#E6B43C"
+        if self == HbModelGeometry.FLOOR:
+            return "#808080"
+        if self == HbModelGeometry.ROOFCEILING:
+            return "#801414"
+        if self == HbModelGeometry.AIRBOUNDARY:
+            return "#FFFFC8"
+        if self == HbModelGeometry.SHADE:
+            return "#784BBE"
+        if self == HbModelGeometry.APERTURE:
+            return "#40B4FF"
+        if self == HbModelGeometry.DOOR:
+            return "#A09664"
+        raise ValueError(f"Invalid SliceColoring: {self}")
+
+    @property
+    def edgecolor(self) -> str:
+        """Return the edgecolor for the geometry type."""
+        if self == HbModelGeometry.WALL:
+            return "#E6B43C"
+        if self == HbModelGeometry.FLOOR:
+            return "#808080"
+        if self == HbModelGeometry.ROOFCEILING:
+            return "#801414"
+        if self == HbModelGeometry.AIRBOUNDARY:
+            return "#FFFFC8"
+        if self == HbModelGeometry.SHADE:
+            return "#784BBE"
+        if self == HbModelGeometry.APERTURE:
+            return "#40B4FF"
+        if self == HbModelGeometry.DOOR:
+            return "#A09664"
+        raise ValueError(f"Invalid SliceColoring: {self}")
+
+    @property
+    def alpha(self) -> float:
+        """Return the alpha for the geometry type."""
+        if self == HbModelGeometry.WALL:
+            return 1
+        if self == HbModelGeometry.FLOOR:
+            return 1
+        if self == HbModelGeometry.ROOFCEILING:
+            return 1
+        if self == HbModelGeometry.AIRBOUNDARY:
+            return 1
+        if self == HbModelGeometry.SHADE:
+            return 1
+        if self == HbModelGeometry.APERTURE:
+            return 1
+        if self == HbModelGeometry.DOOR:
+            return 1
+        raise ValueError(f"Invalid SliceColoring: {self}")
+
+    @property
+    def linewidth(self) -> float:
+        """Return the linewidth for the geometry type."""
+        if self == HbModelGeometry.WALL:
+            return 1
+        if self == HbModelGeometry.FLOOR:
+            return 1
+        if self == HbModelGeometry.ROOFCEILING:
+            return 1
+        if self == HbModelGeometry.AIRBOUNDARY:
+            return 1
+        if self == HbModelGeometry.SHADE:
+            return 1
+        if self == HbModelGeometry.APERTURE:
+            return 1
+        if self == HbModelGeometry.DOOR:
+            return 1
+        raise ValueError(f"Invalid SliceColoring: {self}")
+
+    @property
+    def zorder(self) -> int:
+        """Set the default zorder of the geometry type."""
+        if self == HbModelGeometry.WALL:
+            return 6
+        if self == HbModelGeometry.FLOOR:
+            return 5
+        if self == HbModelGeometry.ROOFCEILING:
+            return 5
+        if self == HbModelGeometry.AIRBOUNDARY:
+            return 4
+        if self == HbModelGeometry.SHADE:
+            return 5
+        if self == HbModelGeometry.APERTURE:
+            return 7
+        if self == HbModelGeometry.DOOR:
+            return 7
+        raise ValueError(f"Invalid SliceColoring: {self}")
+
+
+def plane_intersections(
+    geometries: List[Face3D],
+    plane: Plane,
+) -> List[LineSegment3D]:
+    """Return the LineSegment3D objects that result from slicing a set of geometries with a plane.
+
+    Args:
+        geometries (List[Face3D]): A list of Face3D objects to slice.
+        plane (Plane): A Ladybug 3D Plane object to slice the model with.
+
+    Returns:
+        List[LineSegment3D]: A list of LineSegment3D objects resulting from the slice.
+    """
+
+    line_segments = []
+    for geometry in geometries:
+        try:
+            line_segments.extend(geometry.intersect_plane(plane))
+        except TypeError:
+            continue
+    return line_segments
+
+
+def linesegments_to_polycollection(
+    line_segments: List[LineSegment3D], plane: Plane = None, **kwargs
+) -> PolyCollection:
+    """Convert a list of LineSegment3D objects to a matplotlib PolyCollection.
+
+    Args:
+        line_segments (List[LineSegment3D]): A list of LineSegment3D objects.
+        plane (Plane, optional): A Ladybug 3D Plane object to project the segments onto. Defaults to None which does not project the segments and instead asssumes the line segments are in an XY plane.
+        **kwargs: Additional keyword arguments to pass to the matplotlib PolyCollection constructor.
+
+    Returns:
+        PolyCollection: A matplotlib PolyCollection object.
+    """
+
+    plane = Plane() if plane is None else plane
+
+    _vertices = []
+    for segment in line_segments:
+        _vertices.append(
+            [
+                plane.xyz_to_xy(segment.p1).to_array(),
+                plane.xyz_to_xy(segment.p2).to_array(),
+            ]
+        )
+    return PolyCollection(verts=_vertices, closed=False, **kwargs)
 
 
 def slice_geometry(

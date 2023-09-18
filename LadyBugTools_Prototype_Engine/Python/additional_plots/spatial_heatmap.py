@@ -15,14 +15,13 @@ from ladybugtools_toolkit.plot.utilities import create_triangulation
 from matplotlib.collections import PatchCollection
 from matplotlib.colors import Colormap
 from matplotlib.figure import Figure
-from matplotlib.patches import PathPatch
 from matplotlib.tri.triangulation import Triangulation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.spatial.distance import cdist
 from ladybugtools_toolkit.categorical import Categorical
 
 
-def sensorgrid_to_patches(sensor_grid: SensorGrid) -> List[PathPatch]:
+def sensorgrid_to_patches(sensor_grid: SensorGrid) -> List[mpatches.PathPatch]:
     """Takes a HB SensorGrid and returns a list of matplotlib PathPatch objects
 
     Args:
@@ -57,22 +56,6 @@ def sensorgrid_to_patches(sensor_grid: SensorGrid) -> List[PathPatch]:
         patch = PathPatch(path, rasterized=True)
         patches.append(patch)
     return patches
-
-
-def validate_triangulation_values(triangulation: Triangulation, values: List[float]):
-    """Ensure that the triangulation and values are the same length
-
-    Args:
-        triangulation (Triangulation): Triangulation object.
-        values (List[float]): Set of values to be plotted.
-
-    Raises:
-        ValueError: Error if the triangulation and values are not the same length.
-    """
-    if len(triangulation.x) != len(values):
-        raise ValueError(
-            "The shape of the triangulations and values given do not match."
-        )
 
 
 def spatial_heatmap_categorical(
@@ -165,7 +148,7 @@ def spatial_heatmapnew(
 
 
 def spatial_heatmap_patches(
-    patches: List[PathPatch],
+    patches: List[mpatches.PathPatch],
     values: List[float],
     show_legend: bool = True,
     cmap: Colormap = "viridis",

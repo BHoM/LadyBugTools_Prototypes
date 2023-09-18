@@ -1,17 +1,21 @@
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from warnings import warn
 
+from honeybee_radiance_folder.folder import ModelFolder
+from honeybee.model import Model
+from honeybee_radiance.sensorgrid import SensorGrid
+from ladybug_geometry.bounding import bounding_rectangle
+from ladybug_geometry.geometry3d import Plane, Point3D, Vector3D, Mesh3D
+from ladybug_geometry.geometry2d import Mesh2D, Point2D
+from ladybugtools_toolkit.plot.utilities import create_triangulation
+from matplotlib.tri.triangulation import Triangulation
+from pathlib import Path
+from scipy.spatial.distance import cdist
+import matplotlib.pyplot as plt
+import matplotlib.collections as mcollections
+import matplotlib.patches as mpatches
 import matplotlib.path as mpath
 import numpy as np
-from honeybee_radiance.sensorgrid import SensorGrid
-from ladybug_geometry.geometry3d.plane import Plane, Point3D, Vector3D
-from ladybugtools_toolkit.plot.utilities import create_triangulation
-from matplotlib.patches import PathPatch
-from matplotlib.tri.triangulation import Triangulation
-from scipy.spatial.distance import cdist
-from ladybug_geometry.bounding import bounding_rectangle
-from pathlib import Path
-from honeybee_radiance_folder.folder import ModelFolder
 
 
 def find_pts_files(model_simulation_folder: Path) -> List[Path]:
@@ -52,7 +56,7 @@ def find_pts_files(model_simulation_folder: Path) -> List[Path]:
 
 
 def get_sensorgrids(model_simulation_folder: Path) -> Tuple[SensorGrid]:
-    """Create a list of sensorgrids from a results folder.
+    """Load sensorgrids from a model residing within a results folder.
 
     Args:
         model_simulation_folder (Path): A directory containing radiance simulation results from a lbt-recipe.
@@ -60,18 +64,15 @@ def get_sensorgrids(model_simulation_folder: Path) -> Tuple[SensorGrid]:
     Returns:
         Tuple[SensorGrid]: A tuple of honeybee-radiance SensorGrids.
     """
-    if not isinstance(model_simulation_folder, Path):
-        model_simulation_folder = Path(model_simulation_folder)
 
-    pts_files = find_pts_files(model_simulation_folder)
-    sensor_grids = []
-    for pts_file in pts_files:
-        sensor_grids.append(SensorGrid.from_file(pts_file))
-
-    return tuple(sensor_grids)
+    model_simulation_folder = Path(model_simulation_folder)
+    model = Model.from_hbjson(
+        model_simulation_folder / f"{model_simulation_folder.name}.hbjson"
+    )
+    return model.properties.radiance.sensor_grids
 
 
-def get_sensorgrid_by_name(model_simulation_folder: Path, name: str) -> SensorGrid:
+def get_sensorgrid_by_name(model: Model, name: str) -> SensorGrid:
     """Find and return a sensorgrid by name.
 
     Args:
@@ -81,16 +82,12 @@ def get_sensorgrid_by_name(model_simulation_folder: Path, name: str) -> SensorGr
     Returns:
         SensorGrid: A honeybee-radiance SensorGrid.
     """
-    if not isinstance(model_simulation_folder, Path):
-        model_simulation_folder = Path(model_simulation_folder)
 
-    pts_files = find_pts_files(model_simulation_folder)
-    for pts_file in pts_files:
-        if name != pts_file.stem:
-            continue
-        return SensorGrid.from_file(pts_file)
+    for grid in model.properties.radiance.sensor_grids:
+        if grid.identifier == name:
+            return grid
 
-    raise ValueError(f"Sensorgrid with name {name} not found in {pts_files[0].parent}.")
+    raise ValueError(f"Sensorgrid with name {name} not found in {model}.")
 
 
 def get_triangulations(model_simulation_folder: Path) -> Tuple[Triangulation]:
@@ -105,6 +102,33 @@ def get_triangulations(model_simulation_folder: Path) -> Tuple[Triangulation]:
 
     grids = get_sensorgrids(model_simulation_folder=model_simulation_folder)
     return tuple([sensorgrid_to_triangulation(grid) for grid in grids])
+
+
+def sensorgrid_groupby_level(
+    sensorgrids: List[SensorGrid],
+) -> Dict[float, List[SensorGrid]]:
+    """Group sensorgrids by their level.
+
+    Args:
+        sensorgrids (List[SensorGrid]): A list of honeybee-radiance SensorGrids.
+
+    Returns:
+        Dict[float, List[SensorGrid]]: A dictionary of lists of honeybee-radiance SensorGrids.
+    """
+
+    d = {}
+    for grid in sensorgrids:
+        level = grid.sensors[0].pos[-1]
+        if not sensorgrid_is_planar(grid):
+            warn(
+                f"{grid} is not planar. This may cause issues when grouping by level. It will be assumed to be at level {level}."
+            )
+        if level not in d:
+            d[level] = [grid]
+        else:
+            d[level].append(grid)
+
+    return d
 
 
 def sensorgrid_to_array(sensorgrid: SensorGrid) -> np.ndarray:
@@ -211,6 +235,22 @@ def sensorgrid_to_triangulation(
     ).T
 
     return create_triangulation(x, y, alpha=alpha)
+
+
+def validate_triangulation_values(triangulation: Triangulation, values: List[float]):
+    """Ensure that the triangulation and values are the same length
+
+    Args:
+        triangulation (Triangulation): Triangulation object.
+        values (List[float]): Set of values to be plotted.
+
+    Raises:
+        ValueError: Error if the triangulation and values are not the same length.
+    """
+    if len(triangulation.x) != len(values):
+        raise ValueError(
+            "The shape of the triangulations and values given do not match."
+        )
 
 
 def rotate_triangulation(triangulation: Triangulation, angle: float) -> Triangulation:
@@ -338,3 +378,94 @@ def scale_triangulation(
         triangles=triangulation.triangles,
         mask=triangulation.mask,
     )
+
+
+# LADYBUG GEOMETRY METHODS - SHOULD PROBABLY BE PUT INTO GEOMETRY HANDLING MODULE #
+
+
+def mesh3d_isplanar(mesh: Mesh3D) -> bool:
+    """Check if a mesh is planar.
+
+    Args:
+        mesh (Mesh3D): A ladybug-geometry Mesh3D.
+
+    Returns:
+        bool: True if the mesh is planar, False otherwise.
+    """
+
+    return len(set(mesh.vertex_normals)) == 1
+
+
+def mesh3d_get_plane(mesh: Mesh3D) -> Plane:
+    """Estimate the plane of a mesh.
+
+    Args:
+        mesh (Mesh3D): A ladybug-geometry Mesh3D.
+
+    Returns:
+        Plane: The estimated plane of the mesh.
+    """
+
+    if not mesh3d_isplanar(mesh=mesh):
+        warn(
+            "The mesh given is not planar. This method will return a planar mesh based on a selection of 3-points from the first 3-faces of this mesh."
+        )
+
+    plane = Plane.from_three_points(
+        *[mesh.vertices[j] for j in [i[0] for i in mesh.faces[:3]]]
+    )
+
+    if plane.n.z < 0:
+        warn(
+            "The plane normal is pointing downwards. This method will return a plane with a normal pointing upwards."
+        )
+        return plane.flip()
+
+    return plane
+
+
+def sensorgrid_to_patchcollection(
+    sensorgrid: SensorGrid, **kwargs
+) -> mcollections.PatchCollection:
+    """Convert a honeybee-radiance SensorGrid to a matplotlib PatchCollection.
+
+    Args:
+        sensorgrid (SensorGrid): A honeybee-radiance SensorGrid containing a mesh.
+
+    Returns:
+        mcollections.PatchCollection: The matplotlib PatchCollection.
+    """
+
+    if sensorgrid.mesh is None:
+        raise ValueError(
+            "sensorgrid must have a mesh. This would have been assigned when the sensorgrid was created."
+        )
+
+    # flatten the mesh to 2D in XY plane, to raise warnings if necessary
+    plane = mesh3d_get_plane(mesh=sensorgrid.mesh)
+
+    patches: List[mpatches.Patch] = []
+    for face in sensorgrid.mesh.face_vertices:
+        patches.append(
+            mpatches.Polygon(np.array([i.to_array()[:2] for i in face]), closed=False)
+        )
+
+    return mcollections.PatchCollection(patches, **kwargs)
+
+
+def sensorgrid_plot_values(
+    sensorgrid: SensorGrid, values: List[float], ax: plt.Axes = None, **kwargs
+) -> plt.Axes:
+    """Plot a sensorgrid with values.
+
+    Args:
+        sensorgrid (SensorGrid): A honeybee-radiance SensorGrid.
+        values (List[float]): A list of values to plot.
+
+    Returns:
+        mcollections.PatchCollection: The matplotlib PatchCollection.
+    """
+
+    pc = sensorgrid_to_patchcollection(sensorgrid, **kwargs)
+    pc.set_array(values)
+    return ax.add_collection(pc)
