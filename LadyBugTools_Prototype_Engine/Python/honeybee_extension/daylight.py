@@ -20,7 +20,7 @@ from .sensorgrid import (
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from ladybug_geometry.geometry3d import Point3D, Plane
 import numpy as np
-from honeybee_radiance_postprocess.results import Results
+from honeybee_radiance_postprocess.results import Results, _filter_grids_by_pattern
 from ladybugtools_toolkit.ladybug_extension.datacollection import collection_to_series
 from ladybug.wea import Wea
 from typing import Dict, List
@@ -36,6 +36,7 @@ import subprocess
 from enum import Enum, auto
 from matplotlib.colors import Colormap, Normalize, BoundaryNorm
 import matplotlib.pyplot as plt
+import json
 
 EN17037_ILLUMINANCE_CATEGORIES = Categorical(
     bins=(-np.inf, 0, 1, 2, 3),
@@ -96,8 +97,8 @@ class DaylightMetric(Enum):
             DaylightMetric.DAYLIGHT_AUTONOMY.value: "Daylight Autonomy",
             DaylightMetric.CONTINUOUS_DAYLIGHT_AUTONOMY.value: "Continuous Daylight Autonomy",
             DaylightMetric.USEFUL_DAYLIGHT_ILLUMINANCE.value: "Useful Daylight Illuminance",
-            DaylightMetric.USEFUL_DAYLIGHT_ILLUMINANCE_LT.value: "Useful Daylight Illuminance (LT)",
-            DaylightMetric.USEFUL_DAYLIGHT_ILLUMINANCE_GT.value: "Useful Daylight Illuminance (GT)",
+            DaylightMetric.USEFUL_DAYLIGHT_ILLUMINANCE_LT.value: "Useful Daylight Illuminance (lower)",
+            DaylightMetric.USEFUL_DAYLIGHT_ILLUMINANCE_GT.value: "Useful Daylight Illuminance (greater)",
             DaylightMetric.DAYLIGHT_SATURATION_PERCENTAGE.value: "Daylight Saturation Percentage",
             DaylightMetric.EN17037_TARGET_ILLUMINANCE.value: "EN 17037 Target Illuminance",
             DaylightMetric.EN17037_MINIMUM_ILLUMINANCE.value: "EN 17037 Minimum Illuminance",
@@ -418,170 +419,193 @@ class DaylightMetric(Enum):
         raise ValueError(f"Unsupported metric: {self}")
 
 
-def postprocess_en17037_sensorgrid(
-    model_simulation_folder: Path, sensorgrid: SensorGrid
+def annual_metrics(
+    model_simulation_folder: Path,
+    threshold: float = 300,
+    min_t: float = 100,
+    max_t: float = 3000,
+    grids_filter: List[str] = ["*"],
+    occ_schedule: List[int] = None,
 ) -> pd.DataFrame:
-    model_simulation_folder = Path(model_simulation_folder)
-    annual_daylight_folder = model_simulation_folder / "annual_daylight"
-    metrics_folder = annual_daylight_folder / "results" / "metrics" / "en17037"
-
-    if not metrics_folder.exists():
-        postprocess_en17037(model_simulation_folder)
-
-    target_illuminance_res = (
-        metrics_folder
-        / "compliance_level"
-        / "target_illuminance"
-        / f"{sensorgrid.identifier}.pf"
-    )
-    minimum_illuminance_res = (
-        metrics_folder
-        / "compliance_level"
-        / "minimum_illuminance"
-        / f"{sensorgrid.identifier}.pf"
-    )
-    da_minimum_illuminance_100_res = (
-        metrics_folder
-        / "da"
-        / "minimum_illuminance_100"
-        / f"{sensorgrid.identifier}.da"
-    )
-    da_minimum_illuminance_300_res = (
-        metrics_folder
-        / "da"
-        / "minimum_illuminance_300"
-        / f"{sensorgrid.identifier}.da"
-    )
-    da_minimum_illuminance_500_res = (
-        metrics_folder
-        / "da"
-        / "minimum_illuminance_500"
-        / f"{sensorgrid.identifier}.da"
-    )
-    da_target_illuminance_300_res = (
-        metrics_folder / "da" / "target_illuminance_300" / f"{sensorgrid.identifier}.da"
-    )
-    da_target_illuminance_500_res = (
-        metrics_folder / "da" / "target_illuminance_500" / f"{sensorgrid.identifier}.da"
-    )
-    da_target_illuminance_750_res = (
-        metrics_folder / "da" / "target_illuminance_750" / f"{sensorgrid.identifier}.da"
-    )
-
-    return pd.concat(
-        [
-            load_res(target_illuminance_res).squeeze(),
-            load_res(minimum_illuminance_res).squeeze(),
-            load_res(da_minimum_illuminance_100_res).squeeze(),
-            load_res(da_minimum_illuminance_300_res).squeeze(),
-            load_res(da_minimum_illuminance_500_res).squeeze(),
-            load_res(da_target_illuminance_300_res).squeeze(),
-            load_res(da_target_illuminance_500_res).squeeze(),
-            load_res(da_target_illuminance_750_res).squeeze(),
-        ],
-        axis=1,
-        keys=[
-            "en17037_target_illuminance",
-            "en17037_minimum_illuminance",
-            "en17037_da_minimum_illuminance_100",
-            "en17037_da_minimum_illuminance_300",
-            "en17037_da_minimum_illuminance_500",
-            "en17037_da_target_illuminance_300",
-            "en17037_da_target_illuminance_500",
-            "en17037_da_target_illuminance_750",
-        ],
-    ).sort_index(axis=1)
-
-
-def postprocess_en17037(model_simulation_folder: Path) -> pd.DataFrame:
-    """Post-process annual daylight results to get EN 17037 metrics.
+    """Calculate daylight autonomy for the given model simulation folder.
 
     Args:
         model_simulation_folder (Path):
             Path to the model simulation folder.
+        occ_schedule (List[int], optional):
+            A list of integers representing the occupancy schedule. Defaults to None which uses LB default occupancy profile.
+        dathreshold (float, optional):
+            The threshold in lux. Defaults to 300.
+        udi_min_t (float, optional):
+            The minimum threshold in lux. Defaults to 100.
+        udi_max_t (float, optional):
+            The maximum threshold in lux. Defaults to 3000.
+        grids_filter (List[str], optional):
+            A list of strings to filter the grids. Defaults to ["*"] which includes all grids.
 
     Returns:
         pd.DataFrame:
-            A pandas DataFrame with EN 17037 metrics.
+            A pandas DataFrame with daylight autonomy results per grid requested.
     """
-    model_simulation_folder = Path(model_simulation_folder)
-    annual_daylight_folder = model_simulation_folder / "annual_daylight"
+
+    annual_daylight_folder = model_simulation_folder / "annual_daylight/results"
     if not annual_daylight_folder.exists():
         raise ValueError("The given folder does not contain annual daylight results.")
 
-    sensorgrids = get_sensorgrids(model_simulation_folder)
-    sub_folder = annual_daylight_folder / "results/metrics/en17037"
+    if not isinstance(grids_filter, (list, tuple)):
+        raise ValueError("The grids_filter must be a list or tuple of strings.")
 
-    # check for existence of results and load if already run
-    target_illuminance_res = list(
-        (sub_folder / "compliance_level/target_illuminance").glob("*.pf")
-    )
-    minimum_illuminance_res = list(
-        (sub_folder / "compliance_level/minimum_illuminance").glob("*.pf")
-    )
-    da_minimum_illuminance_100_res = list(
-        (sub_folder / "da/minimum_illuminance_100").glob("*.da")
-    )
-    da_minimum_illuminance_300_res = list(
-        (sub_folder / "da/minimum_illuminance_300").glob("*.da")
-    )
-    da_minimum_illuminance_500_res = list(
-        (sub_folder / "da/minimum_illuminance_500").glob("*.da")
-    )
-    da_target_illuminance_300_res = list(
-        (sub_folder / "da/target_illuminance_300").glob("*.da")
-    )
-    da_target_illuminance_500_res = list(
-        (sub_folder / "da/target_illuminance_500").glob("*.da")
-    )
-    da_target_illuminance_750_res = list(
-        (sub_folder / "da/target_illuminance_750").glob("*.da")
+    # run metrics calculation
+    results = Results(annual_daylight_folder, schedule=occ_schedule, load_arrays=False)
+    metrics_folder = annual_daylight_folder / "metrics"
+    results.annual_metrics_to_folder(
+        target_folder=metrics_folder,
+        threshold=threshold,
+        min_t=min_t,
+        max_t=max_t,
+        grids_filter=grids_filter,
     )
 
-    if (
-        len(
-            set(
-                [
-                    len(target_illuminance_res),
-                    len(minimum_illuminance_res),
-                    len(da_minimum_illuminance_100_res),
-                    len(da_minimum_illuminance_300_res),
-                    len(da_minimum_illuminance_500_res),
-                    len(da_target_illuminance_300_res),
-                    len(da_target_illuminance_500_res),
-                    len(da_target_illuminance_750_res),
-                    len(sensorgrids),
-                ]
-            )
-        )
-        == 1
-    ):
-        return pd.concat(
-            [
-                load_res(target_illuminance_res),
-                load_res(minimum_illuminance_res),
-                load_res(da_minimum_illuminance_100_res),
-                load_res(da_minimum_illuminance_300_res),
-                load_res(da_minimum_illuminance_500_res),
-                load_res(da_target_illuminance_300_res),
-                load_res(da_target_illuminance_500_res),
-                load_res(da_target_illuminance_750_res),
-            ],
+    # load metrics
+    da = load_res(list((metrics_folder / "da").glob("*.da")))
+    cda = load_res(list((metrics_folder / "cda").glob("*.cda")))
+    udi = load_res(list((metrics_folder / "udi").glob("*.udi")))
+    udi_lower = load_res(list((metrics_folder / "udi_lower").glob("*.udi")))
+    udi_upper = load_res(list((metrics_folder / "udi_upper").glob("*.udi")))
+
+    return (
+        pd.concat(
+            [da, cda, udi, udi_lower, udi_upper],
             axis=1,
             keys=[
-                "en17037_target_illuminance",
-                "en17037_minimum_illuminance",
-                "en17037_da_minimum_illuminance_100",
-                "en17037_da_minimum_illuminance_300",
-                "en17037_da_minimum_illuminance_500",
-                "en17037_da_target_illuminance_300",
-                "en17037_da_target_illuminance_500",
-                "en17037_da_target_illuminance_750",
+                f"da_{threshold}lx",
+                f"cda_{threshold}lx",
+                f"udi_{min_t}lx_{max_t}lx",
+                f"udi_lower_{min_t}lx",
+                f"udi_upper_{max_t}lx",
             ],
         )
+        .reorder_levels([1, 0], axis=1)
+        .sort_index(axis=1)
+    )
 
-    # determine peak sun hours from WEA
-    wea = Wea.from_file(list(annual_daylight_folder.glob("*.wea"))[0])
+
+def daylight_saturation_percentage(
+    model_simulation_folder: Path,
+    min_t: float = 430,
+    max_t: float = 4300,
+    grids_filter: List[str] = ["*"],
+    occ_schedule: List[int] = None,
+) -> pd.DataFrame:
+    annual_daylight_folder = Path(model_simulation_folder) / "annual_daylight/results"
+    if not annual_daylight_folder.exists():
+        raise ValueError("The given folder does not contain annual daylight results.")
+
+    if not isinstance(grids_filter, (list, tuple)):
+        raise ValueError("The grids_filter must be a list or tuple of strings.")
+
+    results = Results(annual_daylight_folder, schedule=occ_schedule, load_arrays=False)
+    dsp_min = 430
+    dsp_max = 4300
+    dsp = []
+    names = []
+    for grid_info in results._filter_grids(grids_filter):
+        names.append(grid_info["name"])
+        npy_file = results._get_file(
+            grid_info["name"],
+            light_path="__static_apertures__",
+            state_identifier="default",
+            res_type="total",
+        )
+        ill = load_npy(npy_file)
+        gt_min = ill >= dsp_min
+        lt_max = ill <= dsp_max
+        gt_max = ill > dsp_max
+        dsp.append(
+            (
+                (
+                    (((gt_min & lt_max).sum(axis=0) - gt_max.sum(axis=0)) / len(gt_min))
+                    .unstack()
+                    .T
+                )
+                * 100
+            )
+            .squeeze()
+            .values
+        )
+
+    dsp_results = (
+        pd.concat(
+            [
+                pd.DataFrame(dsp, index=names).T,
+            ],
+            axis=1,
+            keys=[f"dsp_{min_t}lx_{max_t}lx"],
+        )
+        .reorder_levels([1, 0], axis=1)
+        .sort_index(axis=1)
+    )
+    metrics_folder = annual_daylight_folder / "metrics" / "dsp"
+    metrics_folder.mkdir(parents=True, exist_ok=True)
+    for grid_name, values in dsp_results.droplevel([1], axis=1).iteritems():
+        values.dropna().round(2).to_csv(
+            metrics_folder / f"{grid_name}.dsp", header=False, index=False
+        )
+
+    return dsp_results
+
+
+def daylight_factor(
+    model_simulation_folder: Path,
+    grids_filter: List[str] = ["*"],
+) -> pd.DataFrame:
+    """Obtain daylight factor results for the given model simulation folder.
+
+    Args:
+        model_simulation_folder (Path): The model simulation folder.
+        grids_filter (List[str], optional): A list of strings to filter the grids. Defaults to ["*"] which includes all grids.
+
+    Returns:
+        pd.DataFrame: A pandas DataFrame with daylight factor results per grid requested.
+    """
+    daylight_factor_folder = model_simulation_folder / "daylight_factor/results"
+    if not daylight_factor_folder.exists():
+        raise ValueError("The given folder does not contain daylight factor results.")
+
+    if not isinstance(grids_filter, (list, tuple)):
+        raise ValueError("The grids_filter must be a list or tuple of strings.")
+
+    with open(daylight_factor_folder / "grids_info.json") as f:
+        grids_info = json.load(f)
+
+    # get files
+    daylight_factor_files = [
+        daylight_factor_folder / f"{i['name']}.res"
+        for i in _filter_grids_by_pattern(grids_info, grids_filter)
+    ]
+
+    return (
+        pd.concat([load_res(daylight_factor_files)], axis=1, keys=["df"])
+        .reorder_levels([1, 0], axis=1)
+        .sort_index(axis=1)
+    )
+
+
+def en17037(
+    model_simulation_folder: Path,
+    grids_filter: List[str] = ["*"],
+    occ_schedule: List[int] = None,
+) -> pd.DataFrame:
+    annual_daylight_folder = Path(model_simulation_folder) / "annual_daylight/results"
+    if not annual_daylight_folder.exists():
+        raise ValueError("The given folder does not contain annual daylight results.")
+
+    if not isinstance(grids_filter, (list, tuple)):
+        raise ValueError("The grids_filter must be a list or tuple of strings.")
+
+    results = Results(annual_daylight_folder, schedule=occ_schedule, load_arrays=False)
+
+    wea = Wea.from_file(list(Path(model_simulation_folder).glob("*.wea"))[0])
     global_rad = collection_to_series(wea.global_horizontal_irradiance)
     peak_sun_schedule = (
         global_rad.index.isin(
@@ -591,541 +615,408 @@ def postprocess_en17037(model_simulation_folder: Path) -> pd.DataFrame:
         .tolist()
     )
 
-    results = Results(
-        annual_daylight_folder / "results", schedule=None, load_arrays=False
-    )
-    en17037_to_folder(
+    en17071_dir = en17037_to_folder(
         results,
         schedule=peak_sun_schedule,
-        sub_folder=sub_folder,
+        grids_filter=grids_filter,
+        sub_folder=(annual_daylight_folder / "metrics/en17037"),
     )
 
-    target_illuminance_res = list(
-        (sub_folder / "compliance_level/target_illuminance").glob("*.pf")
+    # load results
+    tgt_ill = load_res(
+        list((en17071_dir / "compliance_level/target_illuminance").glob("*.pf"))
     )
-    minimum_illuminance_res = list(
-        (sub_folder / "compliance_level/minimum_illuminance").glob("*.pf")
+    min_ill = load_res(
+        list((en17071_dir / "compliance_level/minimum_illuminance").glob("*.pf"))
     )
-    da_minimum_illuminance_100_res = list(
-        (sub_folder / "da/minimum_illuminance_100").glob("*.da")
+    da_min_ill_100 = load_res(
+        list((en17071_dir / "da/minimum_illuminance_100").glob("*.da"))
     )
-    da_minimum_illuminance_300_res = list(
-        (sub_folder / "da/minimum_illuminance_300").glob("*.da")
+    da_min_ill_300 = load_res(
+        list((en17071_dir / "da/minimum_illuminance_300").glob("*.da"))
     )
-    da_minimum_illuminance_500_res = list(
-        (sub_folder / "da/minimum_illuminance_500").glob("*.da")
+    da_min_ill_500 = load_res(
+        list((en17071_dir / "da/minimum_illuminance_500").glob("*.da"))
     )
-    da_target_illuminance_300_res = list(
-        (sub_folder / "da/target_illuminance_300").glob("*.da")
+    da_tgt_ill_300 = load_res(
+        list((en17071_dir / "da/target_illuminance_300").glob("*.da"))
     )
-    da_target_illuminance_500_res = list(
-        (sub_folder / "da/target_illuminance_500").glob("*.da")
+    da_tgt_ill_500 = load_res(
+        list((en17071_dir / "da/target_illuminance_500").glob("*.da"))
     )
-    da_target_illuminance_750_res = list(
-        (sub_folder / "da/target_illuminance_750").glob("*.da")
-    )
-
-    return pd.concat(
-        [
-            load_res(target_illuminance_res),
-            load_res(minimum_illuminance_res),
-            load_res(da_minimum_illuminance_100_res),
-            load_res(da_minimum_illuminance_300_res),
-            load_res(da_minimum_illuminance_500_res),
-            load_res(da_target_illuminance_300_res),
-            load_res(da_target_illuminance_500_res),
-            load_res(da_target_illuminance_750_res),
-        ],
-        axis=1,
-        keys=[
-            "en17037_target_illuminance",
-            "en17037_minimum_illuminance",
-            "en17037_da_minimum_illuminance_100",
-            "en17037_da_minimum_illuminance_300",
-            "en17037_da_minimum_illuminance_500",
-            "en17037_da_target_illuminance_300",
-            "en17037_da_target_illuminance_500",
-            "en17037_da_target_illuminance_750",
-        ],
+    da_tgt_ill_750 = load_res(
+        list((en17071_dir / "da/target_illuminance_750").glob("*.da"))
     )
 
-
-def postprocess_metrics_sensorgrid(
-    model_simulation_folder: Path,
-    sensorgrid: SensorGrid,
-    metric: str,
-    threshold: float = 300,
-    udi_min: float = 100,
-    udi_max: float = 3000,
-) -> pd.DataFrame:
-    """Generate or load daylight autonomy results for a sensorgrid.
-
-    Args:
-        model_simulation_folder (Path): The path to the model simulation folder.
-        sensorgrid (SensorGrid): The sensorgrid to generate or load results for.
-        metric (str): The metric to generate or load results for. One of 'da', 'cda', 'udi', 'udi_lower', 'udi_upper'.
-        threshold (float, optional): The threshold in lux above which the space is considered to be daylit. Defaults to 300.
-        udi_min (float, optional): The minimum value for the useful daylight illuminance (UDI) in lux. Defaults to 100.
-        udi_max (float, optional): The maximum value for the useful daylight illuminance (UDI) in lux. Defaults to 3000.
-
-    Returns:
-        pd.DataFrame: A pandas DataFrame with daylight autonomy results.
-    """
-
-    dd = {
-        "da": ("da", "da"),
-        "cda": ("cda", "cda"),
-        "udi": ("udi", "udi"),
-        "udi_lower": ("udi_lower", "udi"),
-        "udi_upper": ("udi_upper", "udi"),
-    }
-    if metric not in dd.keys():
-        raise ValueError(
-            "The metric must be one of 'da', 'cda', 'udi', 'udi_lower', 'udi_upper'."
-        )
-
-    model_simulation_folder = Path(model_simulation_folder)
-    annual_daylight_folder = model_simulation_folder / "annual_daylight"
-    metrics_folder = annual_daylight_folder / "results" / "metrics" / dd[metric][0]
-
-    if not metrics_folder.exists():
-        postprocess_metrics(
-            model_simulation_folder,
-            threshold=threshold,
-            udi_min=udi_min,
-            udi_max=udi_max,
-        )
-
-    res = metrics_folder / f"{sensorgrid.identifier}.{dd[metric][1]}"
-    return load_res(res).squeeze().values
-
-
-def postprocess_metrics(
-    model_simulation_folder: Path,
-    threshold: float = 300,
-    udi_min: float = 100,
-    udi_max: float = 3000,
-) -> pd.DataFrame:
-    """Post-process annual daylight results to get autonomy metrics.
-
-    Args:
-        model_simulation_folder (Path):
-            Path to the model simulation folder.
-        threshold (float, optional):
-            The threshold in lux above which the space is considered to be
-            daylit. Defaults to 300.
-        udi_min (float, optional):
-            The minimum value for the useful daylight illuminance (UDI) in lux.
-            Defaults to 100.
-        udi_max (float, optional):
-            The maximum value for the useful daylight illuminance (UDI) in lux.
-            Defaults to 3000.
-
-    Returns:
-        pd.DataFrame:
-            A pandas DataFrame with autonomy metrics.
-    """
-    model_simulation_folder = Path(model_simulation_folder)
-    annual_daylight_folder = model_simulation_folder / "annual_daylight"
-    if not annual_daylight_folder.exists():
-        raise ValueError("The given folder does not contain annual daylight results.")
-    sensorgrids = get_sensorgrids(model_simulation_folder)
-
-    sub_folder = annual_daylight_folder / "results/metrics"
-
-    # check for existence of results and load if already run
-    da_res = list((sub_folder / "da").glob("*.da"))
-    cda_res = list((sub_folder / "cda").glob("*.cda"))
-    udi_res = list((sub_folder / "udi").glob("*.udi"))
-    udi_lower_res = list((sub_folder / "udi_lower").glob("*.udi"))
-    udi_upper_res = list((sub_folder / "udi_upper").glob("*.udi"))
-
-    if (
-        len(
-            set(
-                [
-                    len(da_res),
-                    len(cda_res),
-                    len(udi_res),
-                    len(udi_lower_res),
-                    len(udi_upper_res),
-                    len(sensorgrids),
-                ]
-            )
-        )
-        == 1
-    ):
-        return pd.concat(
+    # combine and return results
+    return (
+        pd.concat(
             [
-                load_res(da_res),
-                load_res(cda_res),
-                load_res(udi_res),
-                load_res(udi_lower_res),
-                load_res(udi_upper_res),
+                tgt_ill,
+                min_ill,
+                da_min_ill_100,
+                da_min_ill_300,
+                da_min_ill_500,
+                da_tgt_ill_300,
+                da_tgt_ill_500,
+                da_tgt_ill_750,
+            ],
+            keys=[
+                "target_illuminance",
+                "minimum_illuminance",
+                "da_minimum_illuminance_100",
+                "da_minimum_illuminance_300",
+                "da_minimum_illuminance_500",
+                "da_target_illuminance_300",
+                "da_target_illuminance_500",
+                "da_target_illuminance_750",
             ],
             axis=1,
-            keys=[
-                f"da",
-                f"cda",
-                f"udi",
-                f"udi_lt",
-                f"udi_gt",
-            ],
         )
+        .reorder_levels([1, 0], axis=1)
+        .sort_index(axis=1)
+    )
 
-    res_folder = annual_daylight_folder / "results"
-    cmds = [
-        folders.python_exe_path,
-        "-m",
-        "honeybee_radiance_postprocess",
-        "post-process",
-        "annual-daylight",
-        res_folder.as_posix(),
-        "-sf",
-        "metrics",
-        "-t",
-        str(threshold),
-        "-lt",
-        str(udi_min),
-        "-ut",
-        str(udi_max),
+
+def annual_sunlight_exposure(
+    model_simulation_folder: Path,
+    direct_threshold: float = 1000,
+    occ_hours: int = 250,
+    grids_filter: List[str] = ["*"],
+    occ_schedule: List[int] = None,
+) -> pd.DataFrame:
+    annual_daylight_folder = Path(model_simulation_folder) / "annual_daylight/results"
+    if not annual_daylight_folder.exists():
+        raise ValueError("The given folder does not contain annual daylight results.")
+
+    if not isinstance(grids_filter, (list, tuple)):
+        raise ValueError("The grids_filter must be a list or tuple of strings.")
+
+    results = Results(annual_daylight_folder, schedule=occ_schedule, load_arrays=False)
+    metrics_folder = annual_daylight_folder / "metrics" / "ase"
+    results.annual_sunlight_exposure_to_folder(
+        target_folder=metrics_folder,
+        direct_threshold=direct_threshold,
+        occ_hours=occ_hours,
+        grids_filter=grids_filter,
+    )
+
+    # get files
+    ase_files = [
+        metrics_folder / "hours_above" / f"{i['name']}.res"
+        for i in _filter_grids_by_pattern(results.grids_info, grids_filter)
     ]
-    process = subprocess.Popen(
-        cmds,
-        cwd=res_folder,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    process.wait()
-
-    da_res = list((sub_folder / "da").glob("*.da"))
-    cda_res = list((sub_folder / "cda").glob("*.cda"))
-    udi_res = list((sub_folder / "udi").glob("*.udi"))
-    udi_lower_res = list((sub_folder / "udi_lower").glob("*.udi"))
-    udi_upper_res = list((sub_folder / "udi_upper").glob("*.udi"))
-    return pd.concat(
-        [
-            load_res(da_res),
-            load_res(cda_res),
-            load_res(udi_res),
-            load_res(udi_lower_res),
-            load_res(udi_upper_res),
-        ],
-        axis=1,
-        keys=[
-            f"da",
-            f"cda",
-            f"udi",
-            f"udi_lt",
-            f"udi_gt",
-        ],
-    )
-
-
-def postprocess_daylightsaturationpercentage_sensorgrid(
-    model_simulation_folder: Path,
-    sensorgrid: SensorGrid,
-    dsp_min: float = 430,
-    dsp_max: float = 4300,
-) -> pd.DataFrame:
-    """Generate or load daylight saturation percentage results for a sensorgrid.
-
-    Args:
-        model_simulation_folder (Path): The path to the model simulation folder.
-        sensorgrid (SensorGrid): The sensorgrid to generate or load results for.
-        dsp_min (float, optional): The minimum value for the daylight saturation percentage (DSP). Defaults to 430.
-        dsp_max (float, optional): The maximum value for the daylight saturation percentage (DSP). Defaults to 4300.
-
-    Returns:
-        pd.DataFrame: A pandas DataFrame with daylight saturation percentage results.
-    """
-
-    model_simulation_folder = Path(model_simulation_folder)
-    annual_daylight_folder = model_simulation_folder / "annual_daylight"
-    metrics_folder = annual_daylight_folder / "results" / "metrics" / "dsp"
-
-    if not metrics_folder.exists():
-        postprocess_daylightsaturationpercentage(
-            model_simulation_folder, dsp_min=dsp_min, dsp_max=dsp_max
-        )
-
-    res = metrics_folder / f"{sensorgrid.identifier}.dsp"
-    return load_res(res).squeeze().values
-
-
-def postprocess_daylightsaturationpercentage(
-    model_simulation_folder: Path, dsp_min: float = 430, dsp_max: float = 4300
-) -> pd.DataFrame:
-    model_simulation_folder = Path(model_simulation_folder)
-    annual_daylight_folder = model_simulation_folder / "annual_daylight"
-
-    if not annual_daylight_folder.exists():
-        raise ValueError("The given folder does not contain annual daylight results.")
-
-    sensorgrids = get_sensorgrids(model_simulation_folder)
-
-    sub_folder = annual_daylight_folder / "results/metrics"
-
-    # check for existence of results and load if already run
-    dsp_res = list((sub_folder / "dsp").glob("*.dsp"))
-
-    if (
-        len(
-            set(
-                [
-                    len(dsp_res),
-                    len(sensorgrids),
-                ]
-            )
-        )
-        == 1
-    ):
-        return pd.concat(
-            [
-                load_res(dsp_res),
-            ],
-            axis=1,
-            keys=[
-                f"dsp",
-            ],
-        )
-
-    # load files
-    npy_files = list(
-        (annual_daylight_folder / "results/__static_apertures__/default/total").glob(
-            "*.npy"
-        )
-    )
-    ill = load_npy(npy_files)
-
-    # calculate metrics
-    gt_min = ill >= dsp_min
-    lt_max = ill <= dsp_max
-    gt_max = ill > dsp_max
-    dsps = (
-        (((gt_min & lt_max).sum(axis=0) - gt_max.sum(axis=0)) / len(gt_min)).unstack().T
-    ) * 100
-
-    # save to file
-    submetrics_folder = sub_folder / "dsp"
-    submetrics_folder.mkdir(parents=True, exist_ok=True)
-
-    for gridname, vals in dsps.iteritems():
-        vals.dropna().to_csv(
-            submetrics_folder / f"{gridname}.dsp", index=False, header=False
-        )
-
-    # return dataframe
-    return pd.concat(
-        [
-            dsps,
-        ],
-        axis=1,
-        keys=[
-            f"dsp",
-        ],
-    )
-
-
-def postprocess_daylightfactor(model_simulation_folder: Path) -> pd.DataFrame:
-    """Post-process daylight factor results.
-
-    Args:
-        model_simulation_folder (Path):
-            Path to the model simulation folder.
-
-    Returns:
-        pd.DataFrame:
-            A pandas DataFrame with daylight factor metrics.
-    """
-
-    model_simulation_folder = Path(model_simulation_folder)
-    daylightfactor_folder = model_simulation_folder / "daylight_factor"
-    if not daylightfactor_folder.exists():
-        raise ValueError("The given folder does not contain daylight factor.")
-    sensorgrids = get_sensorgrids(model_simulation_folder)
-
-    sub_folder = daylightfactor_folder / "results"
-    # check for existence of results and load if already run
-    df_res = list(sub_folder.glob("*.res"))
-    if not len(df_res) == len(sensorgrids):
-        raise ValueError(
-            f"The number of daylight factor results ({len(df_res)}) does not match the number of sensorgrids ({len(sensorgrids)})."
-        )
-
-    return pd.concat([load_res(df_res)], axis=1, keys=["df"])
-
-
-def postprocess_daylightfactor_sensorgrid(
-    model_simulation_folder: Path, sensorgrid: SensorGrid
-) -> List[float]:
-    """Generate or load daylight factor results for a sensorgrid.
-
-    Args:
-        model_simulation_folder (Path): The path to the model simulation folder.
-        sensorgrid (SensorGrid): The sensorgrid to generate or load results for.
-
-    Returns:
-        pd.DataFrame: A pandas DataFrame with daylight factor results.
-    """
-
-    model_simulation_folder = Path(model_simulation_folder)
-    daylightfactor_folder = model_simulation_folder / "daylight_factor" / "results"
-    if not daylightfactor_folder.exists():
-        raise ValueError("The given folder does not contain daylight factor results.")
 
     return (
-        load_res(daylightfactor_folder / f"{sensorgrid.identifier}.res")
-        .squeeze()
-        .values
+        pd.concat(
+            [load_res(ase_files)],
+            axis=1,
+            keys=[f"ase_{direct_threshold}lx_{occ_hours}hrs"],
+        )
+        .reorder_levels([1, 0], axis=1)
+        .sort_index(axis=1)
     )
 
 
-def postprocess_all(
+def breeam_hea01(
     model_simulation_folder: Path,
-    en17037: bool = True,
-    cbdm: bool = True,
-    dsp: bool = True,
-    daylightfactor: bool = True,
+    avg_threshold: float = 300,
+    min_threshold: float = 90,
+    number_of_hours: int = 2000,
+    grids_filter: List[str] = ["*"],
+    occ_schedule: List[int] = None,
+    avg_illuminance_method: int = 0,
+    min_illuminance_method: int = 0,
 ) -> pd.DataFrame:
-    """Run all post-processing methods with default settings.
+    """Calculate the BREEAM HEA01 metric for the given model simulation folder.
 
     Args:
-        model_simulation_folder (Path): The path to the model simulation folder.
+        model_simulation_folder (Path): A path to the model simulation folder.
+        avg_illuminance (float, optional): The average illuminance in lux to be achieved for number_of_hours hours per year. Defaults to 300.
+        min_illuminance (float, optional): The illuminance in lux to be exceeded for number_of_hours hours per year. Defaults to 90.
+        number_of_hours (int, optional): The number of hours to use for the metric calculation. Defaults to 2000. This value changes per space type according to BREEAM requirements.
+        occ_schedule (List[int], optional): An occupancy schedule. Defaults to None which uses the default LB occupancy schedule.
+        grids_filter (List[str], optional): A list of strings to filter the grids. Defaults to ["*"] which includes all grids.
+        avg_illuminance_method (int, optional): The method to use for the Average daylight illuminance calculation. Defaults to 0.
+        min_illuminance_method (int, optional): The method to use for the Minimum daylight illuminance calculation. Defaults to 0.
+
+    Notes:
+        The method parameter is currently used to switch how the guidance is interpreted. ONce an answer is received from BRE then this will be removed.
 
     Returns:
-        pd.DataFrame: A pandas DataFrame with all post-processing results.
+        pd.DataFrame: A pandas DataFrame with the BREEAM HEA01 results per grid requested.
     """
 
-    if sum([en17037, cbdm, dsp, daylightfactor]) == 0:
-        raise ValueError(
-            "No post-processing method was selected. Please select at least one method."
+    annual_daylight_folder = Path(model_simulation_folder) / "annual_daylight/results"
+    if not annual_daylight_folder.exists():
+        raise ValueError("The given folder does not contain annual daylight results.")
+
+    if not isinstance(grids_filter, (list, tuple)):
+        raise ValueError("The grids_filter must be a list or tuple of strings.")
+
+    results = Results(annual_daylight_folder, schedule=occ_schedule, load_arrays=False)
+
+    min_achieved_res = []
+    avg_achieved_res = []
+    names = []
+    for grid_info in results._filter_grids(grids_filter):
+        names.append(grid_info["name"])
+        npy_file = results._get_file(
+            grid_info["name"],
+            light_path="__static_apertures__",
+            state_identifier="default",
+            res_type="total",
+        )
+        ill = load_npy(npy_file).droplevel(0, axis=1)
+
+        ###################
+        # WORST LIT POINT #
+        ###################
+
+        if min_illuminance_method == 0:
+            warn(
+                "The worst lit point is being interpreted as the point with the lowest cumulative amount of daylight."
+            )
+            worst_lit_point = ill.sum(axis=0).idxmin()
+        elif min_illuminance_method == 1:
+            warn(
+                "The worst lit point is being interpreted as the point with the lowest average daylight."
+            )
+            worst_lit_point = ill.mean(axis=0).idxmin()
+        elif min_illuminance_method == 2:
+            warn(
+                "The worst lit point is being interpreted as the point with the lowest median daylight."
+            )
+            worst_lit_point = ill.median(axis=0).idxmin()
+        else:
+            raise ValueError("The min_illuminance_method chosen is not known.")
+        # create a spatial grid indicating whether the min_illuminance is met for the target number of hours
+        min_achieved = (
+            ((ill >= min_threshold).sum() > number_of_hours)
+            .astype(int)
+            .rename(grid_info["name"])
+        )
+        metrics_folder = (
+            annual_daylight_folder / "metrics" / "breeam_hea01" / "minimum_illuminance"
+        )
+        metrics_folder.mkdir(parents=True, exist_ok=True)
+        min_achieved.to_csv(
+            metrics_folder / f"{grid_info['name']}.hea01_min", header=False, index=False
         )
 
-    dfs = []
+        # get a single value, describing whether the worst list pt achieves the min_illuminance for the target number_of_hours
+        is_min_achieved_for_worst_lit_pt = bool(min_achieved.iloc[worst_lit_point])
+        metrics_folder = (
+            annual_daylight_folder / "metrics" / "breeam_hea01" / "minimum_achieved"
+        )
+        metrics_folder.mkdir(parents=True, exist_ok=True)
+        with open(metrics_folder / f"{grid_info['name']}.hea01", "w") as f:
+            f.write(str(int(is_min_achieved_for_worst_lit_pt)))
 
-    if en17037:
-        try:
-            dfs.append(postprocess_en17037(model_simulation_folder))
-        except Exception as e:
-            warn(f"Failed to run EN 17037 post-processing: {e}")
+        ###################
+        # AVG ILLUMINANCE #
+        ###################
 
-    if cbdm:
-        try:
-            dfs.append(postprocess_metrics(model_simulation_folder))
-        except Exception as e:
-            warn(f"Failed to run CBD metrics post-processing: {e}")
-
-    if dsp:
-        try:
-            dfs.append(
-                postprocess_daylightsaturationpercentage(model_simulation_folder)
+        if avg_illuminance_method == 0:
+            warn(
+                "The number of hours exceeding the avg_illuminance are counted, and compared against the number_of_hours, to give a True/False for each point achieving that target."
             )
-        except Exception as e:
-            warn(f"Failed to run daylight saturation percentage post-processing: {e}")
+            avg_achieved = ((ill >= avg_threshold).sum() > number_of_hours).astype(int)
+            space_achieving_avg = (avg_achieved.sum() / len(avg_achieved)) * 100
+        elif avg_illuminance_method == 1:
+            warn(
+                "The top number_of_hours of illuminance are obtained for each point, then the average is taken for each of those timesteps. Whether the avg_illuminance is exceeded or not is returned."
+            )
+            avg_achieved = pd.Series(
+                data=[
+                    int(
+                        i.sort_values(ascending=False)[:number_of_hours].mean()
+                        >= avg_threshold
+                    )
+                    for idx, i in ill.iteritems()
+                ],
+                index=ill.columns,
+                name=grid_info["name"],
+            )
+            space_achieving_avg = (avg_achieved.sum() / len(avg_achieved)) * 100
+        else:
+            raise ValueError("The avg_illuminance_method chosen is not known.")
 
-    if daylightfactor:
-        try:
-            dfs.append(postprocess_daylightfactor(model_simulation_folder))
-        except Exception as e:
-            warn(f"Failed to run daylight factor post-processing: {e}")
+        metrics_folder = (
+            annual_daylight_folder / "metrics" / "breeam_hea01" / "average_illuminance"
+        )
+        metrics_folder.mkdir(parents=True, exist_ok=True)
+        avg_achieved.to_csv(
+            metrics_folder / f"{grid_info['name']}.hea01_avg", header=False, index=False
+        )
 
-    return pd.concat(dfs, axis=1).reorder_levels([1, 0], axis=1).sort_index(axis=1)
+        metrics_folder = (
+            annual_daylight_folder / "metrics" / "breeam_hea01" / "average_achieved"
+        )
+        metrics_folder.mkdir(parents=True, exist_ok=True)
+        with open(metrics_folder / f"{grid_info['name']}.hea01", "w") as f:
+            f.write(str(space_achieving_avg))
 
+        min_achieved_res.append(min_achieved)
+        avg_achieved_res.append(avg_achieved)
 
-def plot_level_by_level(model_simulation_folder: Path) -> None:
-    model_simulation_folder = Path(model_simulation_folder)
-
-    # Load model
-    model = Model.from_hbjson(
-        model_simulation_folder / f"{model_simulation_folder.name}.hbjson"
+    return pd.concat(
+        [
+            pd.concat(avg_achieved_res, axis=1),
+            pd.concat(min_achieved_res, axis=1),
+        ],
+        axis=1,
+        keys=[
+            f"Average daylight illuminance ≥ {avg_threshold}lx over {number_of_hours}hrs",
+            f"Minimum daylight illuminance ≥ {min_threshold}lx over {number_of_hours}hrs",
+        ],
     )
 
-    # get sensor grids and sort by z-level
-    grids = get_sensorgrids(model_simulation_folder=model_simulation_folder)
-    level_grids = sensorgrid_groupby_level(grids)
 
-    pbar1 = tqdm(DaylightMetric)
-    for metric in pbar1:
-        # for each level
-        for nn, (level, grids) in enumerate(level_grids.items()):
-            pbar1.set_description(
-                f"Plotting {metric.name}, level {level:0.2f}m [{nn+1:02d}/{len(level_grids):02d}]"
-            )
-            fig, ax = plt.subplots(
-                1,
-                1,
-            )
+# def postprocess_all(
+#     model_simulation_folder: Path,
+#     en17037: bool = True,
+#     cbdm: bool = True,
+#     dsp: bool = True,
+#     daylightfactor: bool = True,
+# ) -> pd.DataFrame:
+#     """Run all post-processing methods with default settings.
 
-            # plot mesh
-            level_vals = []  # < this is used to generate level-wise metrics
-            level_pts = []  # < this is used to get the axis limits
-            for grid in grids:
-                # load/process the metric values to plot
-                vals = metric.get_values(
-                    sensorgrid=grid, model_simulation_folder=model_simulation_folder
-                )
-                # create patch collection to render
-                pc = sensorgrid_to_patchcollection(
-                    sensorgrid=grid, cmap=metric.cmap, norm=metric.norm, zorder=1
-                )
-                # assign valeus to patch collection
-                pc.set_array(vals)
-                # place patch collection in plot
-                ax.add_collection(pc)
-                level_vals.extend(vals)
-                level_pts.extend([grid.mesh.min, grid.mesh.max])
+#     Args:
+#         model_simulation_folder (Path): The path to the model simulation folder.
 
-            # Plot wireframe, for each of the HB goemetry types (e.g. wall, floor, window, ...)
-            for b in HbModelGeometry:
-                pc = b.slice_polycollection(
-                    model=model, plane=Plane(o=Point3D(0, 0, level))
-                )
-                j = ax.add_collection(pc)
+#     Returns:
+#         pd.DataFrame: A pandas DataFrame with all post-processing results.
+#     """
 
-            # Tidy up the plot a little
-            ax.set_aspect("equal")
-            ax.autoscale()
-            ax.axis("off")
+#     if sum([en17037, cbdm, dsp, daylightfactor]) == 0:
+#         raise ValueError(
+#             "No post-processing method was selected. Please select at least one method."
+#         )
 
-            # narrow to only show the region around the level
-            ax.set_xlim(
-                min([i.x for i in level_pts]) - 1, max([i.x for i in level_pts]) + 1
-            )
-            ax.set_ylim(
-                min([i.y for i in level_pts]) - 1, max([i.y for i in level_pts]) + 1
-            )
+#     dfs = []
 
-            # add the summary stats for the level
-            xa, xb = ax.get_xlim()
-            ya, yb = ax.get_ylim()
-            ax.text(
-                xa,
-                yb,
-                "\n".join(metric.summarize(level_vals)),
-                ha="left",
-                va="top",
-                fontdict=({"family": "monospace"}),
-                bbox=dict(boxstyle="square, pad=0", fc="w", alpha=0.75, ec="none"),
-            )
+#     if en17037:
+#         try:
+#             dfs.append(postprocess_en17037(model_simulation_folder))
+#         except Exception as e:
+#             warn(f"Failed to run EN 17037 post-processing: {e}")
 
-            # PLace the legend
-            divider = make_axes_locatable(ax)
-            cax = divider.append_axes("right", size="5%", pad=0.15)
-            cb = fig.colorbar(
-                mappable=ax.get_children()[0], cax=cax, label=f"{metric.name}"
-            )
-            cb.outline.set_visible(False)
+#     if cbdm:
+#         try:
+#             dfs.append(postprocess_metrics(model_simulation_folder))
+#         except Exception as e:
+#             warn(f"Failed to run CBD metrics post-processing: {e}")
 
-            # Add a title
-            ax.set_title(f"z-level: {level:0.2f}m")
+#     if dsp:
+#         try:
+#             dfs.append(
+#                 postprocess_daylightsaturationpercentage(model_simulation_folder)
+#             )
+#         except Exception as e:
+#             warn(f"Failed to run daylight saturation percentage post-processing: {e}")
 
-            plt.tight_layout()
+#     if daylightfactor:
+#         try:
+#             dfs.append(postprocess_daylightfactor(model_simulation_folder))
+#         except Exception as e:
+#             warn(f"Failed to run daylight factor post-processing: {e}")
 
-            # save the figure
-            img_dir = model_simulation_folder / "images"
-            img_dir.mkdir(exist_ok=True, parents=True)
-            plt.savefig(img_dir / f"{metric.acronym}_level_{nn:02d}.png", dpi=300)
+#     return pd.concat(dfs, axis=1).reorder_levels([1, 0], axis=1).sort_index(axis=1)
 
-            plt.close(fig)
+
+# def plot_level_by_level(model_simulation_folder: Path) -> None:
+#     model_simulation_folder = Path(model_simulation_folder)
+
+#     # Load model
+#     model = Model.from_hbjson(
+#         model_simulation_folder / f"{model_simulation_folder.name}.hbjson"
+#     )
+
+#     # get sensor grids and sort by z-level
+#     grids = get_sensorgrids(model_simulation_folder=model_simulation_folder)
+#     level_grids = sensorgrid_groupby_level(grids)
+
+#     pbar1 = tqdm(DaylightMetric)
+#     for metric in pbar1:
+#         # for each level
+#         for nn, (level, grids) in enumerate(level_grids.items()):
+#             pbar1.set_description(
+#                 f"Plotting {metric.name}, level {level:0.2f}m [{nn+1:02d}/{len(level_grids):02d}]"
+#             )
+#             fig, ax = plt.subplots(
+#                 1,
+#                 1,
+#             )
+
+#             # plot mesh
+#             level_vals = []  # < this is used to generate level-wise metrics
+#             level_pts = []  # < this is used to get the axis limits
+#             for grid in grids:
+#                 # load/process the metric values to plot
+#                 vals = metric.get_values(
+#                     sensorgrid=grid, model_simulation_folder=model_simulation_folder
+#                 )
+#                 # create patch collection to render
+#                 pc = sensorgrid_to_patchcollection(
+#                     sensorgrid=grid, cmap=metric.cmap, norm=metric.norm, zorder=1
+#                 )
+#                 # assign valeus to patch collection
+#                 pc.set_array(vals)
+#                 # place patch collection in plot
+#                 ax.add_collection(pc)
+#                 level_vals.extend(vals)
+#                 level_pts.extend([grid.mesh.min, grid.mesh.max])
+
+#             # Plot wireframe, for each of the HB goemetry types (e.g. wall, floor, window, ...)
+#             for b in HbModelGeometry:
+#                 pc = b.slice_polycollection(
+#                     model=model, plane=Plane(o=Point3D(0, 0, level))
+#                 )
+#                 j = ax.add_collection(pc)
+
+#             # Tidy up the plot a little
+#             ax.set_aspect("equal")
+#             ax.autoscale()
+#             ax.axis("off")
+
+#             # narrow to only show the region around the level
+#             ax.set_xlim(
+#                 min([i.x for i in level_pts]) - 1, max([i.x for i in level_pts]) + 1
+#             )
+#             ax.set_ylim(
+#                 min([i.y for i in level_pts]) - 1, max([i.y for i in level_pts]) + 1
+#             )
+
+#             # add the summary stats for the level
+#             xa, xb = ax.get_xlim()
+#             ya, yb = ax.get_ylim()
+#             ax.text(
+#                 xa,
+#                 yb,
+#                 "\n".join(metric.summarize(level_vals)),
+#                 ha="left",
+#                 va="top",
+#                 fontdict=({"family": "monospace"}),
+#                 bbox=dict(boxstyle="square, pad=0", fc="w", alpha=0.75, ec="none"),
+#             )
+
+#             # PLace the legend
+#             divider = make_axes_locatable(ax)
+#             cax = divider.append_axes("right", size="5%", pad=0.15)
+#             cb = fig.colorbar(
+#                 mappable=ax.get_children()[0], cax=cax, label=f"{metric.name}"
+#             )
+#             cb.outline.set_visible(False)
+
+#             # Add a title
+#             ax.set_title(f"z-level: {level:0.2f}m")
+
+#             plt.tight_layout()
+
+#             # save the figure
+#             img_dir = model_simulation_folder / "images"
+#             img_dir.mkdir(exist_ok=True, parents=True)
+#             plt.savefig(img_dir / f"{metric.acronym}_level_{nn:02d}.png", dpi=300)
+
+#             plt.close(fig)
