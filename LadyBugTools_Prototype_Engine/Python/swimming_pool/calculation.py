@@ -7,6 +7,7 @@ from ladybugtools_toolkit.ladybug_extension.epw import (
     epw_to_dataframe,
 )
 from tqdm import tqdm
+from .etm import *
 
 try:
     from .evaporation_convection import (
@@ -16,12 +17,14 @@ try:
         density_water,
         specific_heat_water,
         latent_heat_of_vaporisation,
+        wind_speed_at_height,
     )
     from .conduction import conduction_gain
     from .longwave import longwave_gain
     from .shortwave import shortwave_gain
     from .occupants import occupant_gain
     from .plot import plot_monthly_balance, plot_timeseries
+    from ladybugtools_toolkit.prototypes.swimming_pool.etm import equibtemp
 except:
     from evaporation_convection import (
         evaporation_rate,
@@ -30,12 +33,14 @@ except:
         density_water,
         specific_heat_water,
         latent_heat_of_vaporisation,
+        wind_speed_at_height,
     )
     from conduction import conduction_gain
     from longwave import longwave_gain
     from shortwave import shortwave_gain
     from occupants import occupant_gain
     from plot import plot_monthly_balance, plot_timeseries
+    from etm import equibtemp
 
 
 # TODO - implement target temperature schedule
@@ -87,10 +92,6 @@ def main(
     insolation = epw_df["Global Horizontal Radiation (Wh/m2)"].rename(
         ("Params", "Insolation (Wh/m2)")
     )
-
-    evap_rate = evaporation_rate(
-        epw=epw, wind_height_above_water=wind_height_above_water
-    ).rename(("Params", "Evaporation Rate (l/m2/hr)"))
 
     # create coverage schedule, which is a multiplier on values which are exposed to air/sun
     coverage_name = ("Params", "Water Coverage (dimensionless)")
@@ -198,8 +199,8 @@ def main(
     # set initial properties for water prior to looping through
     if target_water_temperature is None:
         _current_water_temperature = (
-            # supply_water_temperature[0]
-            28  # use initial supply water temp as initial temperature
+            supply_water_temperature[0]
+            #28  # use initial supply water temp as initial temperature
         )
     else:
         _current_water_temperature = (
@@ -219,29 +220,15 @@ def main(
     q_longwave = []
     q_htg_clg = []
     q_energy_balance = []
+    evap_rate = []
     water_temperature_without_htgclg = []
     remaining_water_temperature = []
     pbar = tqdm(list(enumerate(epw_df.iterrows())))
-    x = 512
+    x = 20000000
     for i, (n, (idx, _)) in enumerate(pbar):
         pbar.set_description(f"Calculating {idx:%b %d %H:%M}")
 
         # calculate heat balance for this point in time
-        _evap_gain = evaporation_gain(
-            evap_rate=evap_rate[n],
-            surface_area=surface_area * (1 - coverage_schedule[n]),
-            latent_heat_of_evaporation=_current_water_latent_heat_of_vaporisation,
-            water_density=_current_water_density,
-        )
-        q_evaporation.append(_evap_gain)
-
-        _conv_gain = convection_gain(
-            evap_gain=_evap_gain,
-            air_temperature=air_temperature[n],
-            water_temperature=_current_water_temperature,
-            atmospheric_pressure=air_pressure[n],
-        )
-        q_convection.append(_conv_gain)
 
         _lwav_gain = longwave_gain(
             surface_area=surface_area * (1 - coverage_schedule[n]),
@@ -258,14 +245,48 @@ def main(
             water_temperature=_current_water_temperature,
         )
         q_conduction.append(_cond_gain)
+        
+        if i > x:
+            print("q solar:" + str(q_solar[n]))
 
+        _evap_rate, _q_evap, _net_energy = equibtemp(average_depth,
+            wind_speed_at_height(epw.wind_speed[n], 10, wind_height_above_water),
+            air_temperature[n],
+            epw.relative_humidity[n],
+            (q_solar[n]/surface_area)*3600,
+            _current_water_temperature
+        )
+        _evap_gain = _q_evap/3600
+        _net_energy = _net_energy/3600
+
+        if i > x:
+            print("evap rate:" + str(_evap_rate))
+            print("evap_energy:" + str(_q_evap))
+            print("net_energy:" + str(_net_energy))
+        evap_rate.append(_evap_rate)
+
+        '''_evap_gain = evaporation_gain(
+            evap_rate=_evap_rate,
+            surface_area=surface_area * (1 - coverage_schedule[n]),
+            latent_heat_of_evaporation=_current_water_latent_heat_of_vaporisation,
+            water_density=_current_water_density,
+        )'''
+        q_evaporation.append(_q_evap)
+        
+        _conv_gain = convection_gain(
+            evap_gain=_evap_gain,
+            air_temperature=air_temperature[n],
+            water_temperature=_current_water_temperature,
+            atmospheric_pressure=air_pressure[n],
+        )
+        
+        q_convection.append(_conv_gain)
+        
         # calculate the resultant energy balance following these gains
         _energy_balance = (
-            _evap_gain
-            + _conv_gain
-            + _lwav_gain
+            _q_evap
+            + _net_energy
             + _cond_gain
-            + q_solar[n]
             + q_occupants[n]
         )
         q_energy_balance.append(_energy_balance)
@@ -288,7 +309,7 @@ def main(
 
         # calculate resultant temperature in remaining water
         volume_water_lost = (
-            evap_rate[n] * (surface_area * (1 - coverage_schedule[n]))
+            _evap_rate * (surface_area * (1 - coverage_schedule[n]))
         ) / 1000  # m3
         if i > x:
             print("vol water lost:" + str(volume_water_lost))
@@ -299,7 +320,7 @@ def main(
         if i > x:
             print("remaining water mass:" + str(remaining_water_mass))
         _remaining_water_temperature = (
-            (_energy_balance * (3600))
+            (_energy_balance)
             / (remaining_water_mass * _current_water_specific_heat_capacity)
         ) + _current_water_temperature  # C
         if i > x:
@@ -326,7 +347,8 @@ def main(
         _current_water_latent_heat_of_vaporisation = latent_heat_of_vaporisation(
             _current_water_temperature, air_pressure[n]
         )  # kJ/kg
-
+        
+        #_current_water_temperature = tw
         # calculate the heat required to reach the target water temperature
         if target_water_temperature is not None:
             if conditioning_schedule[n]:  #
@@ -341,8 +363,7 @@ def main(
                                 (target_water_temperature[n] - target_range)
                                 - _current_water_temperature
                             )
-                        )
-                        * (1000 / 3600)
+                        )/3600
                     )
                     _current_water_temperature = (
                         target_water_temperature[n] - target_range
@@ -358,8 +379,7 @@ def main(
                                 (target_water_temperature[n] + target_range)
                                 - _current_water_temperature
                             )
-                        )
-                        * (1000 / 3600)
+                        )/3600
                     )
                     _current_water_temperature = (
                         target_water_temperature[n] + target_range
@@ -413,6 +433,12 @@ def main(
         index=epw_df.index,
         name=("Other", "Water Temperature [prior to resupply] (C)"),
     )
+    
+    evap_rate = pd.Series(
+        evap_rate,
+        index=epw_df.index,
+        name=("Other", "Evaporation Rate (mm/h)")
+        )
 
     gains_df = pd.concat(
         [
