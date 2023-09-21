@@ -224,7 +224,7 @@ def main(
     water_temperature_without_htgclg = []
     remaining_water_temperature = []
     pbar = tqdm(list(enumerate(epw_df.iterrows())))
-    x = 20000000
+    x = 1000000000
     for i, (n, (idx, _)) in enumerate(pbar):
         pbar.set_description(f"Calculating {idx:%b %d %H:%M}")
 
@@ -256,22 +256,22 @@ def main(
             (q_solar[n]/surface_area)*3600,
             _current_water_temperature
         )
-        _evap_gain = _q_evap/3600
+        _evap_gain = _q_evap/(3600)
         _net_energy = _net_energy/3600
 
         if i > x:
             print("evap rate:" + str(_evap_rate))
-            print("evap_energy:" + str(_q_evap))
+            print("evap_energy:" + str(_evap_gain))
             print("net_energy:" + str(_net_energy))
         evap_rate.append(_evap_rate)
 
-        '''_evap_gain = evaporation_gain(
+        _evap_gain = evaporation_gain(
             evap_rate=_evap_rate,
             surface_area=surface_area * (1 - coverage_schedule[n]),
             latent_heat_of_evaporation=_current_water_latent_heat_of_vaporisation,
             water_density=_current_water_density,
-        )'''
-        q_evaporation.append(_q_evap)
+        )
+        q_evaporation.append(_evap_gain)
         
         _conv_gain = convection_gain(
             evap_gain=_evap_gain,
@@ -284,7 +284,7 @@ def main(
         
         # calculate the resultant energy balance following these gains
         _energy_balance = (
-            _q_evap
+            _evap_gain
             + _net_energy
             + _cond_gain
             + q_occupants[n]

@@ -32,10 +32,10 @@ def alambdat(t: float) -> float:
         t (float): temperature (deg. C)
 
     Returns:
-        float: latent heat of vaporisation (KJ kg-1)
+        float: latent heat of vaporisation (J kg-1)
     """
 
-    return (2.501 - t * 2.2361e-3)*1000
+    return (2.501 - t * 2.2361e-3)*1000*1000
 
 
 def psyconst(p: float, alambda: float) -> float:
@@ -224,7 +224,7 @@ def equibtemp(
     t0 = t_prev + 273.15 #previous water temperature (K)
     cw = 4200 #specific heat capacity of water (J kg-1 K-1)
     c_a = 1013 #specific heat capacity of air (J kg-1 K-1)
-    gamma = psyconst(100.0, lhv/(1000*1000)) #psychrometric constant (kPa K-1)
+    gamma = psyconst(100.0, lhv) #psychrometric constant (kPa K-1)
     rho_w = 1000 #density of water (kg m-3)
     rho_a = 1 #density of air (kg m-3)
 
