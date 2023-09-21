@@ -290,131 +290,134 @@ class DaylightMetric(Enum):
             List[float]: _description_
         """
         if self.value == DaylightMetric.DAYLIGHT_FACTOR.value:
-            return postprocess_daylightfactor_sensorgrid(
+            return daylight_factor(
                 model_simulation_folder=model_simulation_folder,
-                sensorgrid=sensorgrid,
+                grids_filter=[sensorgrid.identifier],
             )
 
         if self.value == DaylightMetric.DAYLIGHT_AUTONOMY.value:
-            return postprocess_metrics_sensorgrid(
-                model_simulation_folder=model_simulation_folder,
-                sensorgrid=sensorgrid,
-                metric="da",
-            )
-
-        if self.value == DaylightMetric.CONTINUOUS_DAYLIGHT_AUTONOMY.value:
-            return postprocess_metrics_sensorgrid(
-                model_simulation_folder=model_simulation_folder,
-                sensorgrid=sensorgrid,
-                metric="cda",
-            )
-
-        if self.value == DaylightMetric.USEFUL_DAYLIGHT_ILLUMINANCE.value:
-            return postprocess_metrics_sensorgrid(
-                model_simulation_folder=model_simulation_folder,
-                sensorgrid=sensorgrid,
-                metric="udi",
-            )
-
-        if self.value == DaylightMetric.USEFUL_DAYLIGHT_ILLUMINANCE_LT.value:
-            return postprocess_metrics_sensorgrid(
-                model_simulation_folder=model_simulation_folder,
-                sensorgrid=sensorgrid,
-                metric="udi_lower",
-            )
-
-        if self.value == DaylightMetric.USEFUL_DAYLIGHT_ILLUMINANCE_GT.value:
-            return postprocess_metrics_sensorgrid(
-                model_simulation_folder=model_simulation_folder,
-                sensorgrid=sensorgrid,
-                metric="udi_upper",
-            )
-
-        if self.value == DaylightMetric.DAYLIGHT_SATURATION_PERCENTAGE.value:
-            return postprocess_daylightsaturationpercentage_sensorgrid(
-                model_simulation_folder=model_simulation_folder,
-                sensorgrid=sensorgrid,
-            )
-
-        if self.value == DaylightMetric.EN17037_TARGET_ILLUMINANCE.value:
             return (
-                postprocess_en17037_sensorgrid(
+                annual_metrics(
                     model_simulation_folder=model_simulation_folder,
-                    sensorgrid=sensorgrid,
-                )["en17037_target_illuminance"]
-                .dropna()
+                    grids_filter=[sensorgrid.identifier],
+                )
+                .droplevel([0], axis=1)["da_300lx"]
                 .values
             )
 
-        if self.value == DaylightMetric.EN17037_MINIMUM_ILLUMINANCE.value:
-            return (
-                postprocess_en17037_sensorgrid(
-                    model_simulation_folder=model_simulation_folder,
-                    sensorgrid=sensorgrid,
-                )["en17037_minimum_illuminance"]
-                .dropna()
-                .values
-            )
+        # if self.value == DaylightMetric.CONTINUOUS_DAYLIGHT_AUTONOMY.value:
+        #     return postprocess_metrics_sensorgrid(
+        #         model_simulation_folder=model_simulation_folder,
+        #         sensorgrid=sensorgrid,
+        #         metric="cda",
+        #     )
 
-        if self.value == DaylightMetric.EN17037_DA_MINIMUM_ILLUMINANCE_100.value:
-            return (
-                postprocess_en17037_sensorgrid(
-                    model_simulation_folder=model_simulation_folder,
-                    sensorgrid=sensorgrid,
-                )["en17037_da_minimum_illuminance_100"]
-                .dropna()
-                .values
-            )
+        # if self.value == DaylightMetric.USEFUL_DAYLIGHT_ILLUMINANCE.value:
+        #     return postprocess_metrics_sensorgrid(
+        #         model_simulation_folder=model_simulation_folder,
+        #         sensorgrid=sensorgrid,
+        #         metric="udi",
+        #     )
 
-        if self.value == DaylightMetric.EN17037_DA_MINIMUM_ILLUMINANCE_300.value:
-            return (
-                postprocess_en17037_sensorgrid(
-                    model_simulation_folder=model_simulation_folder,
-                    sensorgrid=sensorgrid,
-                )["en17037_da_minimum_illuminance_300"]
-                .dropna()
-                .values
-            )
+        # if self.value == DaylightMetric.USEFUL_DAYLIGHT_ILLUMINANCE_LT.value:
+        #     return postprocess_metrics_sensorgrid(
+        #         model_simulation_folder=model_simulation_folder,
+        #         sensorgrid=sensorgrid,
+        #         metric="udi_lower",
+        #     )
 
-        if self.value == DaylightMetric.EN17037_DA_MINIMUM_ILLUMINANCE_500.value:
-            return (
-                postprocess_en17037_sensorgrid(
-                    model_simulation_folder=model_simulation_folder,
-                    sensorgrid=sensorgrid,
-                )["en17037_da_minimum_illuminance_500"]
-                .dropna()
-                .values
-            )
+        # if self.value == DaylightMetric.USEFUL_DAYLIGHT_ILLUMINANCE_GT.value:
+        #     return postprocess_metrics_sensorgrid(
+        #         model_simulation_folder=model_simulation_folder,
+        #         sensorgrid=sensorgrid,
+        #         metric="udi_upper",
+        #     )
 
-        if self.value == DaylightMetric.EN17037_DA_TARGET_ILLUMINANCE_300.value:
-            return (
-                postprocess_en17037_sensorgrid(
-                    model_simulation_folder=model_simulation_folder,
-                    sensorgrid=sensorgrid,
-                )["en17037_da_target_illuminance_300"]
-                .dropna()
-                .values
-            )
+        # if self.value == DaylightMetric.DAYLIGHT_SATURATION_PERCENTAGE.value:
+        #     return postprocess_daylightsaturationpercentage_sensorgrid(
+        #         model_simulation_folder=model_simulation_folder,
+        #         sensorgrid=sensorgrid,
+        #     )
 
-        if self.value == DaylightMetric.EN17037_DA_TARGET_ILLUMINANCE_500.value:
-            return (
-                postprocess_en17037_sensorgrid(
-                    model_simulation_folder=model_simulation_folder,
-                    sensorgrid=sensorgrid,
-                )["en17037_da_target_illuminance_500"]
-                .dropna()
-                .values
-            )
+        # if self.value == DaylightMetric.EN17037_TARGET_ILLUMINANCE.value:
+        #     return (
+        #         postprocess_en17037_sensorgrid(
+        #             model_simulation_folder=model_simulation_folder,
+        #             sensorgrid=sensorgrid,
+        #         )["en17037_target_illuminance"]
+        #         .dropna()
+        #         .values
+        #     )
 
-        if self.value == DaylightMetric.EN17037_DA_TARGET_ILLUMINANCE_750.value:
-            return (
-                postprocess_en17037_sensorgrid(
-                    model_simulation_folder=model_simulation_folder,
-                    sensorgrid=sensorgrid,
-                )["en17037_da_target_illuminance_750"]
-                .dropna()
-                .values
-            )
+        # if self.value == DaylightMetric.EN17037_MINIMUM_ILLUMINANCE.value:
+        #     return (
+        #         postprocess_en17037_sensorgrid(
+        #             model_simulation_folder=model_simulation_folder,
+        #             sensorgrid=sensorgrid,
+        #         )["en17037_minimum_illuminance"]
+        #         .dropna()
+        #         .values
+        #     )
+
+        # if self.value == DaylightMetric.EN17037_DA_MINIMUM_ILLUMINANCE_100.value:
+        #     return (
+        #         postprocess_en17037_sensorgrid(
+        #             model_simulation_folder=model_simulation_folder,
+        #             sensorgrid=sensorgrid,
+        #         )["en17037_da_minimum_illuminance_100"]
+        #         .dropna()
+        #         .values
+        #     )
+
+        # if self.value == DaylightMetric.EN17037_DA_MINIMUM_ILLUMINANCE_300.value:
+        #     return (
+        #         postprocess_en17037_sensorgrid(
+        #             model_simulation_folder=model_simulation_folder,
+        #             sensorgrid=sensorgrid,
+        #         )["en17037_da_minimum_illuminance_300"]
+        #         .dropna()
+        #         .values
+        #     )
+
+        # if self.value == DaylightMetric.EN17037_DA_MINIMUM_ILLUMINANCE_500.value:
+        #     return (
+        #         postprocess_en17037_sensorgrid(
+        #             model_simulation_folder=model_simulation_folder,
+        #             sensorgrid=sensorgrid,
+        #         )["en17037_da_minimum_illuminance_500"]
+        #         .dropna()
+        #         .values
+        #     )
+
+        # if self.value == DaylightMetric.EN17037_DA_TARGET_ILLUMINANCE_300.value:
+        #     return (
+        #         postprocess_en17037_sensorgrid(
+        #             model_simulation_folder=model_simulation_folder,
+        #             sensorgrid=sensorgrid,
+        #         )["en17037_da_target_illuminance_300"]
+        #         .dropna()
+        #         .values
+        #     )
+
+        # if self.value == DaylightMetric.EN17037_DA_TARGET_ILLUMINANCE_500.value:
+        #     return (
+        #         postprocess_en17037_sensorgrid(
+        #             model_simulation_folder=model_simulation_folder,
+        #             sensorgrid=sensorgrid,
+        #         )["en17037_da_target_illuminance_500"]
+        #         .dropna()
+        #         .values
+        #     )
+
+        # if self.value == DaylightMetric.EN17037_DA_TARGET_ILLUMINANCE_750.value:
+        #     return (
+        #         postprocess_en17037_sensorgrid(
+        #             model_simulation_folder=model_simulation_folder,
+        #             sensorgrid=sensorgrid,
+        #         )["en17037_da_target_illuminance_750"]
+        #         .dropna()
+        #         .values
+        #     )
 
         raise ValueError(f"Unsupported metric: {self}")
 
@@ -510,9 +513,9 @@ def daylight_saturation_percentage(
     dsp = []
     names = []
     for grid_info in results._filter_grids(grids_filter):
-        names.append(grid_info["name"])
+        names.append(grid_info["identifier"])
         npy_file = results._get_file(
-            grid_info["name"],
+            grid_info["identifier"],
             light_path="__static_apertures__",
             state_identifier="default",
             res_type="total",
@@ -691,7 +694,7 @@ def annual_sunlight_exposure(
 
     if not isinstance(grids_filter, (list, tuple)):
         raise ValueError("The grids_filter must be a list or tuple of strings.")
-
+    # print(annual_daylight_folder)
     results = Results(annual_daylight_folder, schedule=occ_schedule, load_arrays=False)
     metrics_folder = annual_daylight_folder / "metrics" / "ase"
     results.annual_sunlight_exposure_to_folder(
@@ -703,7 +706,7 @@ def annual_sunlight_exposure(
 
     # get files
     ase_files = [
-        metrics_folder / "hours_above" / f"{i['name']}.res"
+        metrics_folder / "hours_above" / f"{i['identifier']}.res"
         for i in _filter_grids_by_pattern(results.grids_info, grids_filter)
     ]
 
@@ -760,9 +763,9 @@ def breeam_hea01(
     avg_achieved_res = []
     names = []
     for grid_info in results._filter_grids(grids_filter):
-        names.append(grid_info["name"])
+        names.append(grid_info["identifier"])
         npy_file = results._get_file(
-            grid_info["name"],
+            grid_info["identifier"],
             light_path="__static_apertures__",
             state_identifier="default",
             res_type="total",
@@ -794,14 +797,16 @@ def breeam_hea01(
         min_achieved = (
             ((ill >= min_threshold).sum() > number_of_hours)
             .astype(int)
-            .rename(grid_info["name"])
+            .rename(grid_info["identifier"])
         )
         metrics_folder = (
             annual_daylight_folder / "metrics" / "breeam_hea01" / "minimum_illuminance"
         )
         metrics_folder.mkdir(parents=True, exist_ok=True)
         min_achieved.to_csv(
-            metrics_folder / f"{grid_info['name']}.hea01_min", header=False, index=False
+            metrics_folder / f"{grid_info['identifier']}.hea01_min",
+            header=False,
+            index=False,
         )
 
         # get a single value, describing whether the worst list pt achieves the min_illuminance for the target number_of_hours
@@ -810,7 +815,7 @@ def breeam_hea01(
             annual_daylight_folder / "metrics" / "breeam_hea01" / "minimum_achieved"
         )
         metrics_folder.mkdir(parents=True, exist_ok=True)
-        with open(metrics_folder / f"{grid_info['name']}.hea01", "w") as f:
+        with open(metrics_folder / f"{grid_info['identifier']}.hea01", "w") as f:
             f.write(str(int(is_min_achieved_for_worst_lit_pt)))
 
         ###################
@@ -836,7 +841,7 @@ def breeam_hea01(
                     for idx, i in ill.iteritems()
                 ],
                 index=ill.columns,
-                name=grid_info["name"],
+                name=grid_info["identifier"],
             )
             space_achieving_avg = (avg_achieved.sum() / len(avg_achieved)) * 100
         else:
@@ -847,14 +852,16 @@ def breeam_hea01(
         )
         metrics_folder.mkdir(parents=True, exist_ok=True)
         avg_achieved.to_csv(
-            metrics_folder / f"{grid_info['name']}.hea01_avg", header=False, index=False
+            metrics_folder / f"{grid_info['identifier']}.hea01_avg",
+            header=False,
+            index=False,
         )
 
         metrics_folder = (
             annual_daylight_folder / "metrics" / "breeam_hea01" / "average_achieved"
         )
         metrics_folder.mkdir(parents=True, exist_ok=True)
-        with open(metrics_folder / f"{grid_info['name']}.hea01", "w") as f:
+        with open(metrics_folder / f"{grid_info['identifier']}.hea01", "w") as f:
             f.write(str(space_achieving_avg))
 
         min_achieved_res.append(min_achieved)
@@ -873,56 +880,92 @@ def breeam_hea01(
     )
 
 
-# def postprocess_all(
-#     model_simulation_folder: Path,
-#     en17037: bool = True,
-#     cbdm: bool = True,
-#     dsp: bool = True,
-#     daylightfactor: bool = True,
-# ) -> pd.DataFrame:
-#     """Run all post-processing methods with default settings.
+def postprocess_all(
+    model_simulation_folder: Path,
+    _en17037: bool = True,
+    _annual_metrics: bool = True,
+    _daylight_saturation_percentage: bool = True,
+    _annual_sunlight_exposure: bool = True,
+    _daylight_factor: bool = True,
+    _breeam_hea01: bool = True,
+    grids_filter: List[str] = ["*"],
+) -> pd.DataFrame:
+    """Run all post-processing methods with default settings.
 
-#     Args:
-#         model_simulation_folder (Path): The path to the model simulation folder.
+    Args:
+        model_simulation_folder (Path): The path to the model simulation folder.
 
-#     Returns:
-#         pd.DataFrame: A pandas DataFrame with all post-processing results.
-#     """
+    Returns:
+        pd.DataFrame: A pandas DataFrame with all post-processing results.
+    """
 
-#     if sum([en17037, cbdm, dsp, daylightfactor]) == 0:
-#         raise ValueError(
-#             "No post-processing method was selected. Please select at least one method."
-#         )
+    if (
+        sum(
+            [
+                _en17037,
+                _annual_metrics,
+                _daylight_saturation_percentage,
+                _annual_sunlight_exposure,
+                _daylight_factor,
+                _breeam_hea01,
+            ]
+        )
+        == 0
+    ):
+        raise ValueError(
+            "No post-processing method was selected. Please select at least one method."
+        )
 
-#     dfs = []
+    dfs = []
 
-#     if en17037:
-#         try:
-#             dfs.append(postprocess_en17037(model_simulation_folder))
-#         except Exception as e:
-#             warn(f"Failed to run EN 17037 post-processing: {e}")
+    if _en17037:
+        try:
+            dfs.append(en17037(model_simulation_folder, grids_filter=grids_filter))
+        except Exception as e:
+            warn(f"Failed to run EN 17037: {e}")
 
-#     if cbdm:
-#         try:
-#             dfs.append(postprocess_metrics(model_simulation_folder))
-#         except Exception as e:
-#             warn(f"Failed to run CBD metrics post-processing: {e}")
+    if _annual_metrics:
+        try:
+            dfs.append(
+                annual_metrics(model_simulation_folder, grids_filter=grids_filter)
+            )
+        except Exception as e:
+            warn(f"Failed to run annual metrics: {e}")
 
-#     if dsp:
-#         try:
-#             dfs.append(
-#                 postprocess_daylightsaturationpercentage(model_simulation_folder)
-#             )
-#         except Exception as e:
-#             warn(f"Failed to run daylight saturation percentage post-processing: {e}")
+    if _daylight_saturation_percentage:
+        try:
+            dfs.append(
+                daylight_saturation_percentage(
+                    model_simulation_folder, grids_filter=grids_filter
+                )
+            )
+        except Exception as e:
+            warn(f"Failed to run daylight saturation percentage: {e}")
 
-#     if daylightfactor:
-#         try:
-#             dfs.append(postprocess_daylightfactor(model_simulation_folder))
-#         except Exception as e:
-#             warn(f"Failed to run daylight factor post-processing: {e}")
+    if _annual_sunlight_exposure:
+        try:
+            dfs.append(
+                annual_sunlight_exposure(
+                    model_simulation_folder, grids_filter=grids_filter
+                )
+            )
+        except Exception as e:
+            warn(f"Failed to run annual sunlight exposure: {e}")
+    if _daylight_factor:
+        try:
+            dfs.append(
+                daylight_factor(model_simulation_folder, grids_filter=grids_filter)
+            )
+        except Exception as e:
+            warn(f"Failed to run daylight factor: {e}")
 
-#     return pd.concat(dfs, axis=1).reorder_levels([1, 0], axis=1).sort_index(axis=1)
+    if _breeam_hea01:
+        try:
+            dfs.append(breeam_hea01(model_simulation_folder, grids_filter=grids_filter))
+        except Exception as e:
+            warn(f"Failed to run BREEAM HEA01: {e}")
+
+    return pd.concat(dfs, axis=1).reorder_levels([1, 0], axis=1).sort_index(axis=1)
 
 
 # def plot_level_by_level(model_simulation_folder: Path) -> None:
