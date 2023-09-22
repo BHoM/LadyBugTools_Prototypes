@@ -10,6 +10,8 @@ from ladybugtools_toolkit.external_comfort.external_comfort import (
     ExternalComfort,
     SimulationResult,
 )
+from ladybugtools_toolkit.prototypes.additional_plots.utci_shade_benefit import shade_benefit_heatmap_histogram
+
 from ladybugtools_toolkit.external_comfort.material import Materials
 from ladybugtools_toolkit.external_comfort.typology import Typologies
 from ladybugtools_toolkit.helpers import default_analysis_periods, safe_filename
@@ -421,6 +423,13 @@ def run_everything(epw_file: Path, output_directory: Path) -> None:
     # )
     # plt.close(fig)
 
+    fig = shade_benefit_heatmap_histogram(sr)
+    fig.savefig(
+        utci_dir / f"shade_benefit.png",
+        transparent=True,
+    )
+    plt.close(fig)
+    
     # usbc = shade_benefit_category(
     #     unshaded_utci=ec_openfield.universal_thermal_climate_index,
     #     shaded_utci=ec_skyshelter.universal_thermal_climate_index,
