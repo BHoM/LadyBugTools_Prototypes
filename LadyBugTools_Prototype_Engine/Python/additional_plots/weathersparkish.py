@@ -186,7 +186,10 @@ def hours_sunlight(location: Location, ax: plt.Axes = None) -> plt.Axes:
     return ax
 
 
-def hours_sunrise_sunset(location: Location) -> plt.Axes:
+def hours_sunrise_sunset(location: Location, ax: plt.Axes = None) -> plt.Axes:
+    if ax is None:
+        ax = plt.gca()
+
     srss_df = sunrise_sunset(location)
     seconds = srss_df.applymap(
         lambda a: ((a - a.normalize()) / pd.Timedelta("1 second"))
@@ -383,7 +386,7 @@ def hours_sunrise_sunset(location: Location) -> plt.Axes:
     return ax
 
 
-def solar_elevation_azimuth(location: Location) -> plt.Axes:
+def solar_elevation_azimuth(location: Location, ax: plt.Axes = None) -> plt.Axes:
     cat = Categorical(
         colors=(
             "#809FB4",
@@ -434,7 +437,9 @@ def solar_elevation_azimuth(location: Location) -> plt.Axes:
         name="directions",
     )
 
-    ax = plt.gca()
+    if ax is None:
+        ax = plt.gca()
+
     sp = Sunpath.from_location(location)
     idx = pd.date_range("2017-01-01 00:00:00", "2018-01-01 00:00:00", freq="10T")
     suns = [sp.calculate_sun_from_date_time(i) for i in idx]

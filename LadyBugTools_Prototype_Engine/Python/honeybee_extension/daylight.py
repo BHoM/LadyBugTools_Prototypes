@@ -1,42 +1,27 @@
 """Methods for post-processing honeybee-radiance daylight results."""
 
-from honeybee_radiance.sensorgrid import SensorGrid, Sensor
-from pathlib import Path
-from tqdm import tqdm
-from ladybugtools_toolkit.honeybee_extension.results import (
-    load_ill,
-    load_npy,
-    load_res,
-    load_pts,
-    make_annual,
-)
-from honeybee.model import Model
-from .model import HbModelGeometry
-from .sensorgrid import (
-    get_sensorgrids,
-    sensorgrid_groupby_level,
-    sensorgrid_to_patchcollection,
-)
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from ladybug_geometry.geometry3d import Point3D, Plane
-import numpy as np
-from honeybee_radiance_postprocess.results import Results, _filter_grids_by_pattern
-from ladybugtools_toolkit.ladybug_extension.datacollection import collection_to_series
-from ladybug.wea import Wea
-from typing import Dict, List
-from honeybee.config import folders
-import pandas as pd
-from warnings import warn
-from honeybee_radiance_postprocess.en17037 import en17037_to_folder
-from honeybee_radiance_postprocess.annualdaylight import metrics_to_folder
-from ladybugtools_toolkit.plot.utilities import colormap_sequential
-from .sensorgrid import get_sensorgrids
-from ladybugtools_toolkit.categorical.categories import Categorical
-import subprocess
-from enum import Enum, auto
-from matplotlib.colors import Colormap, Normalize, BoundaryNorm
-import matplotlib.pyplot as plt
 import json
+from enum import Enum, auto
+from pathlib import Path
+from typing import Tuple
+from warnings import warn
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from honeybee.model import Model
+from honeybee_radiance.sensorgrid import SensorGrid
+from honeybee_radiance_command.options.rfluxmtx import RfluxmtxOptions
+from honeybee_radiance_command.options.rpict import RpictOptions
+from honeybee_radiance_command.options.rtrace import RtraceOptions
+from honeybee_radiance_postprocess.en17037 import en17037_to_folder
+from honeybee_radiance_postprocess.results import Results, _filter_grids_by_pattern
+from ladybug.wea import Wea
+from ladybugtools_toolkit.categorical.categories import Categorical
+from ladybugtools_toolkit.honeybee_extension.results import load_npy, load_res
+from ladybugtools_toolkit.ladybug_extension.datacollection import collection_to_series
+from ladybugtools_toolkit.plot.utilities import colormap_sequential
+from matplotlib.colors import Colormap, Normalize
 
 EN17037_ILLUMINANCE_CATEGORIES = Categorical(
     bins=(-np.inf, 0, 1, 2, 3),
@@ -204,18 +189,18 @@ class DaylightMetric(Enum):
 
         return d[self.value]
 
-    def summarize(self, values: List[float]) -> List[str]:
+    def summarize(self, values: Tuple[float]) -> Tuple[str]:
         """Generate summary for association with the metric and passed values.
 
         Note:
             This methods assumes that all values are weighted equally, and therefore represent the same areas in as given sensor grid.
 
         Args:
-            values (List[float]):
+            values (Tuple[float]):
                 A list of values for the metric.
 
         Returns:
-            List[str]:
+            Tuple[str]:
                 A list of strings summarizing the metric and the passed values.
         """
 
@@ -280,14 +265,14 @@ class DaylightMetric(Enum):
 
     def get_values(
         self, model_simulation_folder: Path, sensorgrid: SensorGrid
-    ) -> List[float]:
+    ) -> Tuple[float]:
         """Load the metric values for the associated sensorgrid.
 
         Args:
             sensorgrid (SensorGrid): _description_
 
         Returns:
-            List[float]: _description_
+            Tuple[float]: _description_
         """
         if self.value == DaylightMetric.DAYLIGHT_FACTOR.value:
             return daylight_factor(
@@ -422,20 +407,136 @@ class DaylightMetric(Enum):
         raise ValueError(f"Unsupported metric: {self}")
 
 
+def radiance_parameters(
+    model: Model,
+    detail_dim: float,
+    recipe_type: str,
+    detail_level: int = 0,
+    additional_parameters: str = None,
+) -> str:
+    """Generate the default "recommended" Radiance parameters for a Honeybee Radiance simulation.
+
+    This method also includes the estimation of ambient resolution based on the model dimensions.
+
+    Args:
+        model: Model
+            A Honeybee Model.
+        detail_dim: float
+            The detail dimension in meters.
+        recipe_type: str
+            One of the following: 'point-in-time-grid', 'daylight-factor', 'point-in-time-image', 'annual'.
+        detail_level: int
+            One of 0 (low), 1 (medium) or 2 (high).
+        additional_parameters: str
+            Additional parameters to add to the Radiance command. Should be in the format of a Radiance command string e.g. '-ab 2 -aa 0.25'.
+
+    Returns:
+        str: The Radiance parameters as a string.
+    """
+
+    # recommendations for radiance parameters
+    RTRACE = {
+        "ab": [2, 3, 6],
+        "ad": [512, 2048, 4096],
+        "as_": [128, 2048, 4096],
+        "ar": [16, 64, 128],
+        "aa": [0.25, 0.2, 0.1],
+        "dj": [0, 0.5, 1],
+        "ds": [0.5, 0.25, 0.05],
+        "dt": [0.5, 0.25, 0.15],
+        "dc": [0.25, 0.5, 0.75],
+        "dr": [0, 1, 3],
+        "dp": [64, 256, 512],
+        "st": [0.85, 0.5, 0.15],
+        "lr": [4, 6, 8],
+        "lw": [0.05, 0.01, 0.005],
+        "ss": [0, 0.7, 1],
+    }
+
+    RPICT = {
+        "ab": [2, 3, 6],
+        "ad": [512, 2048, 4096],
+        "as_": [128, 2048, 4096],
+        "ar": [16, 64, 128],
+        "aa": [0.25, 0.2, 0.1],
+        "ps": [8, 4, 2],
+        "pt": [0.15, 0.10, 0.05],
+        "pj": [0.6, 0.9, 0.9],
+        "dj": [0, 0.5, 1],
+        "ds": [0.5, 0.25, 0.05],
+        "dt": [0.5, 0.25, 0.15],
+        "dc": [0.25, 0.5, 0.75],
+        "dr": [0, 1, 3],
+        "dp": [64, 256, 512],
+        "st": [0.85, 0.5, 0.15],
+        "lr": [4, 6, 8],
+        "lw": [0.05, 0.01, 0.005],
+        "ss": [0, 0.7, 1],
+    }
+
+    RFLUXMTX = {
+        "ab": [3, 5, 6],
+        "ad": [5000, 15000, 25000],
+        "as_": [128, 2048, 4096],
+        "ds": [0.5, 0.25, 0.05],
+        "dt": [0.5, 0.25, 0.15],
+        "dc": [0.25, 0.5, 0.75],
+        "dr": [0, 1, 3],
+        "dp": [64, 256, 512],
+        "st": [0.85, 0.5, 0.15],
+        "lr": [4, 6, 8],
+        "lw": [0.000002, 6.67e-07, 4e-07],
+        "ss": [0, 0.7, 1],
+        "c": [1, 1, 1],
+    }
+
+    # VALIDATION
+    RECIPE_TYPES = {
+        "point-in-time-grid": [RTRACE, RtraceOptions()],
+        "daylight-factor": [RTRACE, RtraceOptions()],
+        "point-in-time-image": [RPICT, RpictOptions()],
+        "annual": [RFLUXMTX, RfluxmtxOptions()],
+    }
+    if recipe_type not in RECIPE_TYPES:
+        raise ValueError(f"detail_level must be one of {RECIPE_TYPES.keys()}")
+
+    if detail_level not in [0, 1, 2]:
+        raise ValueError("Detail level must be one of 0 (low), 1 (medium) or 2 (high).")
+
+    options, obj = RECIPE_TYPES[recipe_type]
+    for opt, vals in options.items():
+        setattr(obj, opt, vals[detail_level])
+
+    min_pt, max_pt = model.min, model.max
+    x_dim = max_pt.x - min_pt.x
+    y_dim = max_pt.y - min_pt.y
+    z_dim = max_pt.z - min_pt.z
+    longest_dim = max((x_dim, y_dim, z_dim))
+    try:
+        obj.ar = int((longest_dim * obj.aa) / detail_dim)
+    except TypeError as _:
+        obj.ar = int((longest_dim * 0.1) / detail_dim)
+
+    if additional_parameters:
+        obj.update_from_string(additional_parameters)
+
+    return obj.to_radiance()
+
+
 def annual_metrics(
     model_simulation_folder: Path,
     threshold: float = 300,
     min_t: float = 100,
     max_t: float = 3000,
-    grids_filter: List[str] = ["*"],
-    occ_schedule: List[int] = None,
+    grids_filter: Tuple[str] = "*",
+    occ_schedule: Tuple[int] = None,
 ) -> pd.DataFrame:
     """Calculate daylight autonomy for the given model simulation folder.
 
     Args:
         model_simulation_folder (Path):
             Path to the model simulation folder.
-        occ_schedule (List[int], optional):
+        occ_schedule (Tuple[int], optional):
             A list of integers representing the occupancy schedule. Defaults to None which uses LB default occupancy profile.
         dathreshold (float, optional):
             The threshold in lux. Defaults to 300.
@@ -443,8 +544,8 @@ def annual_metrics(
             The minimum threshold in lux. Defaults to 100.
         udi_max_t (float, optional):
             The maximum threshold in lux. Defaults to 3000.
-        grids_filter (List[str], optional):
-            A list of strings to filter the grids. Defaults to ["*"] which includes all grids.
+        grids_filter (Tuple[str], optional):
+            A list of strings to filter the grids. Defaults to ("*") which includes all grids.
 
     Returns:
         pd.DataFrame:
@@ -455,8 +556,9 @@ def annual_metrics(
     if not annual_daylight_folder.exists():
         raise ValueError("The given folder does not contain annual daylight results.")
 
-    if not isinstance(grids_filter, (list, tuple)):
-        raise ValueError("The grids_filter must be a list or tuple of strings.")
+    if not isinstance(grids_filter, (list, tuple, str)):
+        print(type(grids_filter))
+        raise ValueError("The grids_filter must be a string, list or tuple of strings.")
 
     # run metrics calculation
     results = Results(annual_daylight_folder, schedule=occ_schedule, load_arrays=False)
@@ -497,15 +599,15 @@ def daylight_saturation_percentage(
     model_simulation_folder: Path,
     min_t: float = 430,
     max_t: float = 4300,
-    grids_filter: List[str] = ["*"],
-    occ_schedule: List[int] = None,
+    grids_filter: Tuple[str] = "*",
+    occ_schedule: Tuple[int] = None,
 ) -> pd.DataFrame:
     annual_daylight_folder = Path(model_simulation_folder) / "annual_daylight/results"
     if not annual_daylight_folder.exists():
         raise ValueError("The given folder does not contain annual daylight results.")
 
-    if not isinstance(grids_filter, (list, tuple)):
-        raise ValueError("The grids_filter must be a list or tuple of strings.")
+    if not isinstance(grids_filter, (list, tuple, str)):
+        raise ValueError("The grids_filter must be a string, list or tuple of strings.")
 
     results = Results(annual_daylight_folder, schedule=occ_schedule, load_arrays=False)
     dsp_min = 430
@@ -560,13 +662,13 @@ def daylight_saturation_percentage(
 
 def daylight_factor(
     model_simulation_folder: Path,
-    grids_filter: List[str] = ["*"],
+    grids_filter: Tuple[str] = "*",
 ) -> pd.DataFrame:
     """Obtain daylight factor results for the given model simulation folder.
 
     Args:
         model_simulation_folder (Path): The model simulation folder.
-        grids_filter (List[str], optional): A list of strings to filter the grids. Defaults to ["*"] which includes all grids.
+        grids_filter (Tuple[str], optional): A list of strings to filter the grids. Defaults to ("*") which includes all grids.
 
     Returns:
         pd.DataFrame: A pandas DataFrame with daylight factor results per grid requested.
@@ -575,15 +677,16 @@ def daylight_factor(
     if not daylight_factor_folder.exists():
         raise ValueError("The given folder does not contain daylight factor results.")
 
-    if not isinstance(grids_filter, (list, tuple)):
-        raise ValueError("The grids_filter must be a list or tuple of strings.")
+    if not isinstance(grids_filter, (list, tuple, str)):
+        raise ValueError("The grids_filter must be a string, list or tuple of strings.")
 
     with open(daylight_factor_folder / "grids_info.json") as f:
         grids_info = json.load(f)
 
     # get files
+    # FIXME - the replacement of '::' is a hack to avoid the ':' in the grid name
     daylight_factor_files = [
-        daylight_factor_folder / f"{i['name']}.res"
+        daylight_factor_folder / f"{i['name'].replace('::', '')}.res"
         for i in _filter_grids_by_pattern(grids_info, grids_filter)
     ]
 
@@ -596,15 +699,15 @@ def daylight_factor(
 
 def en17037(
     model_simulation_folder: Path,
-    grids_filter: List[str] = ["*"],
-    occ_schedule: List[int] = None,
+    grids_filter: Tuple[str] = "*",
+    occ_schedule: Tuple[int] = None,
 ) -> pd.DataFrame:
     annual_daylight_folder = Path(model_simulation_folder) / "annual_daylight/results"
     if not annual_daylight_folder.exists():
         raise ValueError("The given folder does not contain annual daylight results.")
 
-    if not isinstance(grids_filter, (list, tuple)):
-        raise ValueError("The grids_filter must be a list or tuple of strings.")
+    if not isinstance(grids_filter, (list, tuple, str)):
+        raise ValueError("The grids_filter must be a string, list or tuple of strings.")
 
     results = Results(annual_daylight_folder, schedule=occ_schedule, load_arrays=False)
 
@@ -685,15 +788,16 @@ def annual_sunlight_exposure(
     model_simulation_folder: Path,
     direct_threshold: float = 1000,
     occ_hours: int = 250,
-    grids_filter: List[str] = ["*"],
-    occ_schedule: List[int] = None,
+    grids_filter: Tuple[str] = "*",
+    occ_schedule: Tuple[int] = None,
 ) -> pd.DataFrame:
     annual_daylight_folder = Path(model_simulation_folder) / "annual_daylight/results"
     if not annual_daylight_folder.exists():
         raise ValueError("The given folder does not contain annual daylight results.")
 
-    if not isinstance(grids_filter, (list, tuple)):
-        raise ValueError("The grids_filter must be a list or tuple of strings.")
+    if not isinstance(grids_filter, (list, tuple, str)):
+        raise ValueError("The grids_filter must be a string, list or tuple of strings.")
+
     # print(annual_daylight_folder)
     results = Results(annual_daylight_folder, schedule=occ_schedule, load_arrays=False)
     metrics_folder = annual_daylight_folder / "metrics" / "ase"
@@ -726,8 +830,8 @@ def breeam_hea01(
     avg_threshold: float = 300,
     min_threshold: float = 90,
     number_of_hours: int = 2000,
-    grids_filter: List[str] = ["*"],
-    occ_schedule: List[int] = None,
+    grids_filter: Tuple[str] = "*",
+    occ_schedule: Tuple[int] = None,
     avg_illuminance_method: int = 0,
     min_illuminance_method: int = 0,
 ) -> pd.DataFrame:
@@ -738,8 +842,8 @@ def breeam_hea01(
         avg_illuminance (float, optional): The average illuminance in lux to be achieved for number_of_hours hours per year. Defaults to 300.
         min_illuminance (float, optional): The illuminance in lux to be exceeded for number_of_hours hours per year. Defaults to 90.
         number_of_hours (int, optional): The number of hours to use for the metric calculation. Defaults to 2000. This value changes per space type according to BREEAM requirements.
-        occ_schedule (List[int], optional): An occupancy schedule. Defaults to None which uses the default LB occupancy schedule.
-        grids_filter (List[str], optional): A list of strings to filter the grids. Defaults to ["*"] which includes all grids.
+        occ_schedule (Tuple[int], optional): An occupancy schedule. Defaults to None which uses the default LB occupancy schedule.
+        grids_filter (Tuple[str], optional): A list of strings to filter the grids. Defaults to ("*") which includes all grids.
         avg_illuminance_method (int, optional): The method to use for the Average daylight illuminance calculation. Defaults to 0.
         min_illuminance_method (int, optional): The method to use for the Minimum daylight illuminance calculation. Defaults to 0.
 
@@ -754,8 +858,8 @@ def breeam_hea01(
     if not annual_daylight_folder.exists():
         raise ValueError("The given folder does not contain annual daylight results.")
 
-    if not isinstance(grids_filter, (list, tuple)):
-        raise ValueError("The grids_filter must be a list or tuple of strings.")
+    if not isinstance(grids_filter, (list, tuple, str)):
+        raise ValueError("The grids_filter must be a string, list or tuple of strings.")
 
     results = Results(annual_daylight_folder, schedule=occ_schedule, load_arrays=False)
 
@@ -887,8 +991,8 @@ def postprocess_all(
     _daylight_saturation_percentage: bool = True,
     _annual_sunlight_exposure: bool = True,
     _daylight_factor: bool = True,
-    _breeam_hea01: bool = True,
-    grids_filter: List[str] = ["*"],
+    _breeam_hea01: bool = False,
+    grids_filter: Tuple[str] = "*",
 ) -> pd.DataFrame:
     """Run all post-processing methods with default settings.
 
@@ -918,14 +1022,18 @@ def postprocess_all(
 
     dfs = []
 
+    print(f"Processing {model_simulation_folder.name}")
+
     if _en17037:
         try:
+            print("- Running EN17037")
             dfs.append(en17037(model_simulation_folder, grids_filter=grids_filter))
         except Exception as e:
             warn(f"Failed to run EN 17037: {e}")
 
     if _annual_metrics:
         try:
+            print("- Running annual metrics (DA, CDA, UDI)")
             dfs.append(
                 annual_metrics(model_simulation_folder, grids_filter=grids_filter)
             )
@@ -934,6 +1042,7 @@ def postprocess_all(
 
     if _daylight_saturation_percentage:
         try:
+            print("- Running daylight saturation percentage")
             dfs.append(
                 daylight_saturation_percentage(
                     model_simulation_folder, grids_filter=grids_filter
@@ -944,6 +1053,7 @@ def postprocess_all(
 
     if _annual_sunlight_exposure:
         try:
+            print("- Running annual sunlight exposure")
             dfs.append(
                 annual_sunlight_exposure(
                     model_simulation_folder, grids_filter=grids_filter
@@ -951,8 +1061,10 @@ def postprocess_all(
             )
         except Exception as e:
             warn(f"Failed to run annual sunlight exposure: {e}")
+
     if _daylight_factor:
         try:
+            print("- Running daylight factor")
             dfs.append(
                 daylight_factor(model_simulation_folder, grids_filter=grids_filter)
             )
@@ -961,6 +1073,7 @@ def postprocess_all(
 
     if _breeam_hea01:
         try:
+            print("- Running BEEAM HEA01")
             dfs.append(breeam_hea01(model_simulation_folder, grids_filter=grids_filter))
         except Exception as e:
             warn(f"Failed to run BREEAM HEA01: {e}")
