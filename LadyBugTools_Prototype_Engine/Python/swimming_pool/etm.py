@@ -204,14 +204,17 @@ def equibtemp1(
 
 
 def equibtemp(
+    t_sky, # sky temperature (C)
     depth,  # depth (m)
     u,  # wind speed (m s-1)
     t_air,  # air temperature (C)
+    t_wb, #wet bulb temperature (C)
     rh,  # relative humidity (%)
     q_solar,  # incoming solar energy (J)
     t_prev,  # previous water temperature (C)
     wind_height=10,  # wind height above water (m)
     albedo=0.08,  # albedo
+    tstep=1
 ):
     # TODO - sky heat transfer
     # TODO - Documentation!
@@ -226,39 +229,37 @@ def equibtemp(
 
     # conversions to SI units (J, kg, K, m)
     sigma = 5.7e-8  # stefan boltzmann constant
-    t_wb = wet_bulb_from_db_rh(t_air, rh)  # wet bulb temperature (C)
     k = 0.41  # Von Karman constant
     z0 = 0.001  # roughness length assumed to be very low
     ut = max(u, 0.01)  # wind speed (m s-1)
     zr = wind_height  # wind height above water (m)
-    e_air = 0.7  # air emmissivity (assumption to be refined)
+    e_air = 0.70  # air emmissivity (assumption to be refined)
     e_w = 0.95  # water emmissivity
     lhv = alambdat(t_air)  # latent heat of vaporisation of water (J kg-1)
+    t_sky += 273.15 # sky temperature (K)
     t_air += 273.15  # air temperature (K)
     t_wb += 273.15  # wet bulb temperature (K)
-    t_prev += 273.15
     t0 = t_prev + 273.15  # previous water temperature (K)
     cw = 4200  # specific heat capacity of water (J kg-1 K-1)
     c_a = 1013  # specific heat capacity of air (J kg-1 K-1)
-    gamma = psyconst(100.0, lhv)  # psychrometric constant (kPa K-1)
+    gamma = psyconst(100.0, lhv/(1000*1000))  # psychrometric constant (kPa K-1)
     rho_w = 1000  # density of water (kg m-3)
     rho_a = 1  # density of air (kg m-3)
 
     # NOTE - The magic numbers are magic. Trust them and they shall do you well. Might need some investigation, but for now the Env Agency says it's good
-    wf = 4.4 + 1.82 * ut  # J m-2 kPa-1
+    wf = 4.4 + 1.82 * ut # W m-2 kPa-1
 
     # heat echange with the atmosphere/sky
     # TODO - update for sky temperature - https://www.engineeringtoolbox.com/radiation-heat-transfer-d_431.html Eqn3
-    lwav_inc = e_air * (sigma * t_air**4)  # J
 
-    lwav_out_wb = e_w * (sigma * t_wb**4)  # J
+    lwav_out_wb = e_w * (sigma * ((t_sky**4) - (t_wb**4)))  # W
 
-    lwav_out_t0 = e_w * (sigma * t0**4)  # J
+    lwav_out_t0 = e_w * (sigma * ((t_sky**4) - (t0**4)))  # W
 
     # Net radiation for wet bulb or t0(previous temperature)
-    net_rad_wb = q_solar * (1 - albedo) + lwav_inc - lwav_out_wb  # J
+    net_rad_wb = (q_solar * (1 - albedo) + (lwav_out_wb))  # W
 
-    net_rad_t0 = q_solar * (1 - albedo) + lwav_inc - lwav_out_t0  # J
+    net_rad_t0 = (q_solar * (1 - albedo) + (lwav_out_t0))  # W
 
     # time constant ... does something ... probably clever
     tau = (rho_w * cw * depth) / (
@@ -266,30 +267,30 @@ def equibtemp(
     )  # seconds
 
     # equilibrium temperature. Temperature at which no heat exchange occurs
-    t_equib = t_wb + (net_rad_wb) / (
+    t_equib = t_wb + ((net_rad_wb) / (
         4 * sigma * (t_wb**3) + wf * (delcalc(t_wb - 273.15) + gamma)
-    )  # K
+    ))  # K
 
     # actual tempertaure of water after time step
-    t_final = t_equib + (t_prev - t_equib) * np.exp(1 / tau)  # K
+    t_final = t_equib + (t0 - t_equib) * np.exp(tstep / tau)  # K
 
     # TODO - add additional heat gains in here, e.g. occupants, convection, conduction
 
     # net radiation exhange, minus evaporation energy loss (solar + longwave)
-    N = rho_w * cw * depth * (t_final - t_prev)  # J
+    N = -(rho_w * cw * depth * (t_final - t0))/tstep # J
 
     # aerodynamic resistance, another magic function
-    ra = np.log(zr / z0) ** 2 / (k * k * ut)  # m-1
+    ra = (1/15) * np.log(zr / z0) ** 2 / (k * k * ut) # m-1
 
     # latent heat flux
     lambda_e = (
-        delcalc(t_air - 273.15) * (net_rad_t0 - N)
+        delcalc(t_air - 273.15) * ((net_rad_t0) - (N))
         + rho_a * c_a * (vpdcalc(saturated_vapor_pressure(t_air), rh) / ra)
     ) / (
         delcalc(t_air - 273.15) + gamma
     )  # J
-
+    
     # evaporation rate
-    evap = lambda_e / lhv  # kg
-
-    return evap, lambda_e, N  # kg m-2, J, J
+    evap = (lambda_e) / lhv  # kg
+    
+    return evap

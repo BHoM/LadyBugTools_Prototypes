@@ -199,9 +199,8 @@ def main(
     # set initial properties for water prior to looping through
     if target_water_temperature is None:
         _current_water_temperature = (
-            supply_water_temperature[0]
-            #28  # use initial supply water temp as initial temperature
-        )
+            supply_water_temperature.mean() 
+        )  # use mean supply water temp as initial temperature
     else:
         _current_water_temperature = (
             target_water_temperature[0] - target_range
@@ -224,7 +223,7 @@ def main(
     water_temperature_without_htgclg = []
     remaining_water_temperature = []
     pbar = tqdm(list(enumerate(epw_df.iterrows())))
-    x = 1000000000
+    x = -1 # dev analysis statements
     for i, (n, (idx, _)) in enumerate(pbar):
         pbar.set_description(f"Calculating {idx:%b %d %H:%M}")
 
@@ -246,23 +245,23 @@ def main(
         )
         q_conduction.append(_cond_gain)
         
-        if i > x:
+        if i > x and x != -1:
             print("q solar:" + str(q_solar[n]))
 
-        _evap_rate, _q_evap, _net_energy = equibtemp(average_depth,
+        _evap_rate = equibtemp(
+            sky_temperature[n],
+            average_depth,
             wind_speed_at_height(epw.wind_speed[n], 10, wind_height_above_water),
             air_temperature[n],
+            epw_df["Wet Bulb Temperature (C)"][n],
             epw.relative_humidity[n],
-            (q_solar[n]/surface_area)*3600,
-            _current_water_temperature
+            (q_solar[n]/surface_area),
+            _current_water_temperature,
+            tstep=3600
         )
-        _evap_gain = _q_evap/(3600)
-        _net_energy = _net_energy/3600
-
-        if i > x:
+        
+        if i > x and x != -1:
             print("evap rate:" + str(_evap_rate))
-            print("evap_energy:" + str(_evap_gain))
-            print("net_energy:" + str(_net_energy))
         evap_rate.append(_evap_rate)
 
         _evap_gain = evaporation_gain(
@@ -282,51 +281,53 @@ def main(
         
         q_convection.append(_conv_gain)
         
-        # calculate the resultant energy balance following these gains
+        # calculate the resultant energy balance following these gains (FUDGE FACTOR for evap gain as more research needs to be done into evaporative energy losses)
         _energy_balance = (
-            _evap_gain
-            + _net_energy
+            _evap_gain*0.6
+            + q_solar[n]
+            + _conv_gain
+            + _lwav_gain
             + _cond_gain
             + q_occupants[n]
         )
         q_energy_balance.append(_energy_balance)
-        if i > x:
+        if i > x and x != -1:
             print("evap gain:" + str(_evap_gain))
-        if i > x:
+        if i > x and x != -1:
             print("conv gain:" + str(_conv_gain))
-        if i > x:
+        if i > x and x != -1:
             print("lwav gain:" + str(_lwav_gain))
-        if i > x:
+        if i > x and x != -1:
             print("cond gain:" + str(_cond_gain))
-        if i > x:
+        if i > x and x != -1:
             print("q solar:" + str(q_solar[n]))
-        if i > x:
+        if i > x and x != -1:
             print("q occupants:" + str(q_occupants[n]))
-        if i > x:
+        if i > x and x != -1:
             print("net energy loss:" + str(_energy_balance))
-        if i > x:
+        if i > x and x != -1:
             print("temp before loss:" + str(_current_water_temperature))
 
         # calculate resultant temperature in remaining water
         volume_water_lost = (
             _evap_rate * (surface_area * (1 - coverage_schedule[n]))
         ) / 1000  # m3
-        if i > x:
+        if i > x and x != -1:
             print("vol water lost:" + str(volume_water_lost))
         remaining_water_volume = container_volume - volume_water_lost  # m3
-        if i > x:
+        if i > x and x != -1:
             print("remaining water vol:" + str(remaining_water_volume))
         remaining_water_mass = remaining_water_volume * _current_water_density  # kg
-        if i > x:
+        if i > x and x != -1:
             print("remaining water mass:" + str(remaining_water_mass))
         _remaining_water_temperature = (
-            (_energy_balance)
+            (_energy_balance*3600)
             / (remaining_water_mass * _current_water_specific_heat_capacity)
         ) + _current_water_temperature  # C
-        if i > x:
+        if i > x and x != -1:
             print("remaining water temp:" + str(_remaining_water_temperature))
         remaining_water_temperature.append(_remaining_water_temperature)
-        if i > x:
+        if i > x and x != -1:
             print("woo!")
 
         # add water back into the body of water at a given temperature
@@ -334,7 +335,7 @@ def main(
             [supply_water_temperature[n], _remaining_water_temperature],
             weights=[volume_water_lost, remaining_water_volume],
         )
-        if i > x:
+        if i > x and x != -1:
             print("water temp after supply:" + str(_current_water_temperature))
 
         water_temperature_without_htgclg.append(_current_water_temperature)
@@ -390,11 +391,11 @@ def main(
                 q_htg_clg.append(0)
         else:
             q_htg_clg.append(0)
-        if i > x:
+        if i > x and x != -1:
             print("temp before step:" + str(_current_water_temperature))
-        if i > x:
+        if i > x and x != -1:
             print("")
-        if i > x + 3:
+        if i > x + 12 and x != -1:
             return None
 
     # combine heat gains into a single dataframe
