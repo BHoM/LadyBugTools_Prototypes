@@ -42,11 +42,6 @@ except:
     from plot import plot_monthly_balance, plot_timeseries
     from etm import equibtemp
 
-
-# TODO - implement target temperature schedule
-# TODO - implement target temp band
-
-
 def main(
     epw_file: str,
     surface_area: float = 1,

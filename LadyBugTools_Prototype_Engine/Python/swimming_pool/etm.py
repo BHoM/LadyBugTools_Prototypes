@@ -55,6 +55,15 @@ def psyconst(p: float, alambda: float) -> float:
 
 
 def vpdcalc(svp, rh):
+    """
+    Function to calculate the vapour pressure deficit
+    Args:
+        svp (float): saturated vapour pressure (kPa)
+        rh (float): relative humidity (percent)
+        
+    Returns:
+        float: vapour pressure deficit (kPa)
+    """
     return svp * (1 - (rh / 100))
 
 
@@ -216,6 +225,27 @@ def equibtemp(
     albedo=0.08,  # albedo
     tstep=1
 ):
+    """
+    Subroutine to calculate the evaporation, using data from a
+    water body using the equilibrium temperature model of de Bruin,
+    H.A.R., 1982, j.hydrol, 59, 261-274
+
+    Args:
+        t_sky (float): Sky temperature (deg.C)
+        depth (float): Depth of the water body (m)
+        u (float): Wind speed (m s-1)
+        t_air (float): Air temperature (deg.C)
+        t_wb (float): Wet bulb temperature (deg.C)
+        rh (float): Relative humidity (%)
+        q_solar (float): Incoming solar radiation (W m-2)
+        t_prev (float): Water temperature on previous time step (deg.C)
+        wind_height (float): Height of wind measurements above water (m)
+        albedo (float): Albedo of the water body
+        tstep (float): Length of the time step (seconds)
+
+    Returns:
+        evap (float): Evaporation amount calculated using penman-monteith (kg lost over the time step)
+    """
     # TODO - sky heat transfer
     # TODO - Documentation!
     # TODO - longer variable names
@@ -223,7 +253,7 @@ def equibtemp(
     # TODO - add output for q_occupants (and implement occupants impact on temperature, see later TODO)
     # TODO - add output for q_longwave
     # TODO - add output for q_conduction with pool lining - small value, but would be nice to have
-    # TODO - add output for q_convection, use Bowen ratio method
+    # TODO - add output for q_convection, use Bowen ratio method (if convection is not already accounted for in penman monteith)
     # MAYBENOTTODO - add output for q_conditioning_water_temp
     # MAYBENOTTODO - add output for q_conditioning_heat_balance
 
@@ -282,7 +312,7 @@ def equibtemp(
     # aerodynamic resistance, another magic function
     ra = (1/15) * np.log(zr / z0) ** 2 / (k * k * ut) # m-1
 
-    # latent heat flux
+    # latent heat flux (using penman-monteith)
     lambda_e = (
         delcalc(t_air - 273.15) * ((net_rad_t0) - (N))
         + rho_a * c_a * (vpdcalc(saturated_vapor_pressure(t_air), rh) / ra)
