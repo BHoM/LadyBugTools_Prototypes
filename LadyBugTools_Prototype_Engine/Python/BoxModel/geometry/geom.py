@@ -86,6 +86,7 @@ class BoxModelSensorGrid:
                                         x_dim = self.grid_size,
                                         offset=self.offset_distance,
                                         flip=True)
+<<<<<<< HEAD
 
 
 
@@ -103,3 +104,5 @@ def BoxModelTest(glazing_ratio, sill_height, window_height, bay_width, bay_count
      model=BoxModelModel(room).generate_honeybee_model()
      return model
         
+=======
+>>>>>>> fcf5b7ea7f0ca968e70a980661a542a066b4cdeb
