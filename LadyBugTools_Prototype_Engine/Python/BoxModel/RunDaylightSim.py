@@ -12,16 +12,10 @@ from .results.daylight_plotting import DaylightPlot, generate_zip
 
 #new file for all daylight sim functionality, no streamlit
 
-#set up file
-
 def RunDaylightSim(model: Model, wea: Wea, grid_size: float, path:str):
-    """"""
-
     # Generate sensor grid
     sensor_grid = geom.BoxModelSensorGrid(model = model, grid_size = grid_size).sensor_grid
     model.properties.radiance.add_sensor_grid(sensor_grid)
-
-       
 
     # Run daylight simulation
     daylight_sim = DaylightSimulation(model=model, wea=wea)
