@@ -1,0 +1,26 @@
+[
+  {
+    "identifier": "default",
+    "light_path": "__static_apertures__",
+    "octree": "default.oct",
+    "octree_direct": "default_direct.oct",
+    "octree_direct_sun": "default_direct_sun.oct",
+    "sensor_grids_folder": "__static_apertures__",
+    "sensor_grids_info": [
+      {
+        "name": "0",
+        "identifier": "0",
+        "full_id": "0",
+        "group": "",
+        "count": 180
+      },
+      {
+        "name": "1",
+        "identifier": "1",
+        "full_id": "1",
+        "group": "",
+        "count": 180
+      }
+    ]
+  }
+]

@@ -1,0 +1,1 @@
+{"cpu-count": 11, "grid-filter": "*", "min-sensor-count": 200, "model": "Test.hbjson", "north": 0.0, "radiance-parameters": "-ab 2 -ad 5000 -lw 2e-05 -dr 0", "thresholds": "-t 300 -lt 100 -ut 3000", "wea": "London.Wea.Ctr-St.James.Park_0_8759.wea", "simulation_folder": "C:/GITHubCode/LadyBugTools_Prototypes/LadyBugTools_Prototype_Engine/Python/BoxModel/temp/annual_daylight"}
