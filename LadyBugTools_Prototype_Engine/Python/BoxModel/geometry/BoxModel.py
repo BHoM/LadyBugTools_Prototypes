@@ -31,7 +31,7 @@ def EpwToWea(epw_file):
 
 # def DayLightSimulation(wea_file, model): 
 
-
+"""
  
 
  
@@ -128,4 +128,4 @@ class RunDaylightSim:
 
  
 
-    output(vtk_path,image_filepath)  
+    output(vtk_path,image_filepath)  """

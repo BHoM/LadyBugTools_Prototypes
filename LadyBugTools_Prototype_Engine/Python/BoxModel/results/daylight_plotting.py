@@ -1,10 +1,6 @@
 import os
 import zipfile
-<<<<<<< HEAD
-from .daylight_plotter import (
-=======
-from results.daylight_plotter import (
->>>>>>> fcf5b7ea7f0ca968e70a980661a542a066b4cdeb
+from ..results.daylight_plotter import (
 build_custom_continuous_cmap,
 vertices_from_grids,
 add_starting_vertices_to_end,
