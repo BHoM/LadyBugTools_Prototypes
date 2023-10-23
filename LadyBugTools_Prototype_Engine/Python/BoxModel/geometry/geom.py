@@ -101,4 +101,5 @@ def BoxModelTest(glazing_ratio, sill_height, window_height, bay_width, bay_count
                         glazing_properties= glazing_properties).get_honeybee_room()
             
      model=BoxModelModel(room).generate_honeybee_model()
-     return model
+     modelVTK = BoxModelModel(room).generate_VTK_model(model)
+     return modelVTK
