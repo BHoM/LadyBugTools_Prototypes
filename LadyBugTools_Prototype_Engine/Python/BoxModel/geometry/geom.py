@@ -89,7 +89,7 @@ class BoxModelSensorGrid:
 
 
 
-def BoxModelTest(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height):
+def BoxModelVTK(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height):
      glazing_properties= BoxModelGlazing(glazing_ratio=glazing_ratio,
                                          sill_height=sill_height,
                                          window_height=window_height,
@@ -103,3 +103,17 @@ def BoxModelTest(glazing_ratio, sill_height, window_height, bay_width, bay_count
      model=BoxModelModel(room).generate_honeybee_model()
      modelVTK = BoxModelModel(room).generate_VTK_model(model)
      return modelVTK
+
+def BoxModelTest(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height):
+     glazing_properties= BoxModelGlazing(glazing_ratio=glazing_ratio,
+                                         sill_height=sill_height,
+                                         window_height=window_height,
+                                         bay_width=bay_width)
+     room= BoxModelRoom(bay_width=bay_width,
+                        bay_count=bay_count,
+                        depth= room_depth,
+                        height= room_height,
+                        glazing_properties= glazing_properties).get_honeybee_room()
+            
+     model=BoxModelModel(room).generate_honeybee_model()
+     return model
