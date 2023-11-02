@@ -25,7 +25,6 @@ class SimulationOutputSetup:
     def return_sim_output(self):
         return self.sim_output
         
-        
 @dataclass        
 class SimulationParameterSetup:
     sim_output: SimulationOutput
@@ -46,8 +45,6 @@ class SimulationParameterSetup:
         with open(sim_par_path, 'w') as json_file:
             json.dump(sim_par_json, json_file)
         return sim_par_path
-
-
 
 @dataclass
 class RunEnergySimulation:

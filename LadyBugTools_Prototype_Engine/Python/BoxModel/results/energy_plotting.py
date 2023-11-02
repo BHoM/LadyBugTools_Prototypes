@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import pandas as pd
 from collections import defaultdict
-from results.daylight_plotter import build_custom_continuous_cmap
+from .daylight_plotter import build_custom_continuous_cmap
 import matplotlib.pyplot as plt
 from ladybug.color import Colorset
 
