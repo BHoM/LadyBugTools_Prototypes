@@ -39,8 +39,8 @@ def RunDaylightSim(model: Model, wea: Wea, grid_size: float, path:str, north: in
         metric = annual_metrics[i]
         grids = [model.properties.radiance.sensor_grids[0]]
 
-        plot= DaylightPlot(metric, grids)
-        p,fig= plot.generate_fig()
-        image_filepath= plot.save_fig(output_image_folder)
+        plot = DaylightPlot(metric, grids)
+        p,fig = plot.generate_fig()
+        image_filepath = plot.save_fig(output_image_folder)
 
     return vtk_path, image_filepath
