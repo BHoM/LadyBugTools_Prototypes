@@ -9,7 +9,7 @@ from dataclasses import dataclass
 class DaylightSimulation:
     model: Model
     wea: Wea
-
+        
     def __post_init__(self):
         self.recipe = Recipe('annual-daylight')
         self.recipe.input_value_by_name('model', self.model)

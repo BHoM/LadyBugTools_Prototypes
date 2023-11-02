@@ -8,15 +8,15 @@ from honeybee_vtk.model import Model
 from ladybug.epw import EPW
 from .geometry.geom import BoxModelGlazing, BoxModelModel, BoxModelRoom, BoxModelSensorGrid
 
+from .file_utils import make_folder_if_not_exist
 from .construction.construction_set import BoxModelFabricProperties
 from .program.program import PeopleLoad, LightingLoad, ElectricEquipmentLoad, InfiltrationLoad, SetpointProgram
 from .simulation.energy_simulation import SimulationOutputSetup, SimulationParameterSetup, RunEnergySimulation
 from .results.energy_results import EnergySimResults
+
 from .results.energy_plotting import display_metrics_as_df, LoadBalanceBarPlot
 
-#New file for energy sim functionality to be called in c# wrappper
-
-#Code dupe for non streamlit 
+#New functionality
 def Run_EnergySimulation(model: Model, room, epw: EPW, path:str):
     #construction set
     epw_obj = EPW(epw)
@@ -54,3 +54,16 @@ def Run_EnergySimulation(model: Model, room, epw: EPW, path:str):
 
     return monthly_balance, metrics
 
+#to call from c#
+def energy_sim(model: Model, room, epw: EPW, path:str):
+    monthly_balance, metrics = Run_EnergySimulation(model, room, epw, path)
+    
+    results_folder = make_folder_if_not_exist(path,"results")
+
+    output_image_folder = os.path.join(path, 'results\\result')
+    
+    metrics_output = display_metrics_as_df(metrics)
+    fig_output = LoadBalanceBarPlot(monthly_balance).save_fig()
+    fig_output.savefig(output_image_folder)
+    
+    return metrics_output, fig_output
