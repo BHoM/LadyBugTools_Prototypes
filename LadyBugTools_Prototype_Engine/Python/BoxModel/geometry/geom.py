@@ -15,6 +15,7 @@ class BoxModelGlazing:
   sill_height: float 
   window_height: float
   bay_width: float
+  wall_thickness: float
 
 @dataclass
 class BoxModelRoom:
@@ -46,6 +47,11 @@ class BoxModelRoom:
                 sill_height = self.glazing_properties.sill_height,
                 horizontal_separation = self.glazing_properties.bay_width
             )
+            print(self.room.faces[1].apertures)
+            for aperture in self.room.faces[1].apertures:
+                aperture.extruded_border(self.glazing_properties.wall_thickness)
+
+
 
     def _assign_boundary_conditions(self):
         for face in self.room.faces:
@@ -89,22 +95,23 @@ class BoxModelSensorGrid:
                                         offset=self.offset_distance,
                                         flip=True)
 
-def BoxModelTest(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north):
+def BoxModelTest(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north, wall_thickness):
      glazing_properties= BoxModelGlazing(glazing_ratio = glazing_ratio,
                                          sill_height = sill_height,
                                          window_height = window_height,
-                                         bay_width = bay_width)
+                                         bay_width = bay_width,
+                                         wall_thickness = wall_thickness)
      room= BoxModelRoom(bay_width = bay_width,
                         bay_count = bay_count,
                         depth = room_depth,
-                        height = room_height, #height is spelt wrong...
+                        height = room_height,
                         glazing_properties = glazing_properties,
                         north = north).get_honeybee_room()
             
      model=BoxModelModel(room).generate_honeybee_model()
      return model, room
 
-def BoxModelVTK(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north):
-    model, room = BoxModelTest(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north)
+def BoxModelVTK(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north, wall_thickness):
+    model, room = BoxModelTest(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north, wall_thickness)
     modelVTK = BoxModelModel(room).generate_VTK_model(model)
     return modelVTK
