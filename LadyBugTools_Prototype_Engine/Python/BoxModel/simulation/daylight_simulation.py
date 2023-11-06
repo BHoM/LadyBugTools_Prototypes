@@ -19,6 +19,7 @@ class DaylightSimulation:
         self.recipe.input_value_by_name('schedule', None)
         self.recipe.input_value_by_name('grid-filter', None)
         self.recipe.input_value_by_name('radiance-parameters', None)
+        #self.recipe.input_value_by_name('visible-transmittance', 0)
 
     def run_annual_daylight_simulation(self, path):
         run_settings = RecipeSettings(folder = path, reload_old=False)

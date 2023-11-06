@@ -11,6 +11,7 @@ from honeybee_energy.material.glazing import EnergyWindowMaterialGlazing
 from honeybee_energy.construction.window import WindowConstruction
 from honeybee_energy.lib.constructions import window_construction_by_identifier
 from honeybee_energy.lib.materials import window_material_by_identifier
+from honeybee_energy.constructionset import ApertureConstructionSet
 
 #import glass material, window constuction & apply window construction)
 from dataclasses import dataclass, field
@@ -24,7 +25,7 @@ class BoxModelGlazing:
   window_height: float
   bay_width: float
   wall_thickness: float
-  glass_thickness: float = 0.12
+  glass_thickness: str = "{0.12}"
   glass_solar_transm: float = 0.7
   glass_vis_transm : float = 0.7
   glass_infar_transm: float = 0
@@ -66,13 +67,11 @@ class BoxModelRoom:
                                                    visible_transmittance = self.glazing_properties.glass_vis_transm,
                                                    infrared_transmittance = self.glazing_properties.glass_infar_transm
             )
-            print(materials) 
             material_constructor = WindowConstruction(identifier = "custom glass constructrion: transmittance" , materials = [materials])
-            
-            #wall-thickness
+            #print(materials)
             for aperture in self.room.faces[1].apertures:
                 aperture.extruded_border(self.glazing_properties.wall_thickness)
-                aperture.window_construction_by_identifier(material_constructor)
+                aperture.properties.energy.construction = material_constructor
                 
     def _assign_boundary_conditions(self):
         for face in self.room.faces:
