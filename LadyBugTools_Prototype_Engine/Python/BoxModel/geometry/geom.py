@@ -1,3 +1,5 @@
+from copyreg import constructor
+from warnings import filterwarnings
 from honeybee_energy.boundarycondition import Adiabatic
 from honeybee.boundarycondition import Outdoors
 from honeybee.model import Model
@@ -5,6 +7,12 @@ from honeybee.facetype import Floor
 from honeybee.room import Room
 from honeybee_radiance.sensorgrid import SensorGrid
 from honeybee_vtk.model import Model as VTKModel, SensorGridOptions
+from honeybee_energy.material.glazing import EnergyWindowMaterialGlazing
+from honeybee_energy.construction.window import WindowConstruction
+from honeybee_energy.lib.constructions import window_construction_by_identifier
+from honeybee_energy.lib.materials import window_material_by_identifier
+
+#import glass material, window constuction & apply window construction)
 from dataclasses import dataclass, field
 
 #for now one file-maybe seperate if it gets longer
@@ -16,6 +24,10 @@ class BoxModelGlazing:
   window_height: float
   bay_width: float
   wall_thickness: float
+  glass_thickness: float = 0.12
+  glass_solar_transm: float = 0.7
+  glass_vis_transm : float = 0.7
+  glass_infar_transm: float = 0
 
 @dataclass
 class BoxModelRoom:
@@ -39,7 +51,7 @@ class BoxModelRoom:
         self._assign_boundary_conditions()
         self._assign_glazing_params()
     
-    def _assign_glazing_params(self):
+    def _assign_glazing_params(self):                                                  
         if self.glazing_properties is not None:
             self.room.faces[1].apertures_by_ratio_rectangle(
                 ratio = self.glazing_properties.glazing_ratio,
@@ -47,11 +59,21 @@ class BoxModelRoom:
                 sill_height = self.glazing_properties.sill_height,
                 horizontal_separation = self.glazing_properties.bay_width
             )
+            #glass_material, thickness & transmittance
+            materials = EnergyWindowMaterialGlazing(identifier = "custom glass transmittance",
+                                                   thickness = self.glazing_properties.glass_thickness,
+                                                   solar_transmittance = self.glazing_properties.glass_solar_transm,
+                                                   visible_transmittance = self.glazing_properties.glass_vis_transm,
+                                                   infrared_transmittance = self.glazing_properties.glass_infar_transm
+            )
+            print(materials) 
+            material_constructor = WindowConstruction(identifier = "custom glass constructrion: transmittance" , materials = [materials])
+            
+            #wall-thickness
             for aperture in self.room.faces[1].apertures:
                 aperture.extruded_border(self.glazing_properties.wall_thickness)
-
-
-
+                aperture.window_construction_by_identifier(material_constructor)
+                
     def _assign_boundary_conditions(self):
         for face in self.room.faces:
             face.boundary_condition = Adiabatic()
@@ -94,12 +116,17 @@ class BoxModelSensorGrid:
                                         offset=self.offset_distance,
                                         flip=True)
 
-def BoxModelTest(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north, wall_thickness):
+def BoxModel(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north, wall_thickness, glass_thickness, glass_solar_transm, glass_vis_transm, glass_infar_transm):
      glazing_properties= BoxModelGlazing(glazing_ratio = glazing_ratio,
                                          sill_height = sill_height,
                                          window_height = window_height,
                                          bay_width = bay_width,
-                                         wall_thickness = wall_thickness)
+                                         wall_thickness = wall_thickness,
+                                         glass_thickness = glass_thickness,
+                                         glass_solar_transm = glass_solar_transm,
+                                         glass_vis_transm = glass_vis_transm,
+                                         glass_infar_transm = glass_infar_transm)
+     
      room= BoxModelRoom(bay_width = bay_width,
                         bay_count = bay_count,
                         depth = room_depth,
@@ -110,7 +137,7 @@ def BoxModelTest(glazing_ratio, sill_height, window_height, bay_width, bay_count
      model=BoxModelModel(room).generate_honeybee_model()
      return model, room
 
-def BoxModelVTK(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north, wall_thickness):
-    model, room = BoxModelTest(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north, wall_thickness)
+def BoxModelVTK(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north, wall_thickness, glass_thickness, glass_transm):
+    model, room = BoxModel(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north, wall_thickness)
     modelVTK = BoxModelModel(room).generate_VTK_model(model)
     return modelVTK
