@@ -47,7 +47,6 @@ class BoxModelRoom:
                 sill_height = self.glazing_properties.sill_height,
                 horizontal_separation = self.glazing_properties.bay_width
             )
-            print(self.room.faces[1].apertures)
             for aperture in self.room.faces[1].apertures:
                 aperture.extruded_border(self.glazing_properties.wall_thickness)
 
