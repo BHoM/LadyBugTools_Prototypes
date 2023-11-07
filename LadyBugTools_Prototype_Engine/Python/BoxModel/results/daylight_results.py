@@ -31,6 +31,7 @@ class DaylightSimResults:
                 grid_res = [float(v) for v in res_file.read_text().splitlines()]
                 metric['results']=grid_res
                 results.append(grid_res)
+                print(res_file)
 
              #Add results to sensor grids
             self.model.sensor_grids.add_data_fields(results, name=metric['name'], per_face=True,data_range=[0,100], colors=metric['colors'])
@@ -41,3 +42,36 @@ class DaylightSimResults:
         self.model.update_display_mode(DisplayMode.Wireframe)
         self.model.shades.display_mode = DisplayMode.SurfaceWithEdges
         # Not working as expected due to underlying pollination code- for future investigation
+
+@dataclass
+class GlareSimResults:
+    hb_model: Model= field(init=True)
+    results_folder: str = field(init=True)
+
+    def __post_init__(self):
+        self.model=VTKModel(hb_model=self.hb_model, grid_options=SensorGridOptions.Mesh)
+        self.annual_metrics = [
+                    {'folder': 'ga', 'extension': 'ga', 'name': 'Annual Glare Autonomy', 'colors': ColorSets.nuanced, 'color_index':1,'shortened': 'GA'}                    
+                ]
+
+    def load_and_add_results(self):
+        for metric in self.annual_metrics:
+            results = []
+            for grid in self.model.sensor_grids.data:
+                res_file = Path(
+                    self.results_folder, metric['folder'], f'{grid.identifier}.{metric["extension"]}'
+                )
+                grid_res = [float(v) for v in res_file.read_text().splitlines()]
+                metric['results']=grid_res
+                results.append(grid_res)
+
+             #Add results to sensor grids
+            self.model.sensor_grids.add_data_fields(results, name=metric['name'], per_face=True,data_range=[0,100], colors=metric['colors'])
+            self.model.sensor_grids.color_by= 'Annual Glare Autonomy'
+    
+    def set_display_modes(self):
+        self.model.sensor_grids.display_mode = DisplayMode.SurfaceWithEdges
+        self.model.update_display_mode(DisplayMode.Wireframe)
+        self.model.shades.display_mode = DisplayMode.SurfaceWithEdges
+        # Not working as expected due to underlying pollination code- for future investigation
+
