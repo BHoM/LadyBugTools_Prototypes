@@ -89,8 +89,7 @@ class BoxModelModel:
     def generate_VTK_model(model)-> VTKModel:
         model=VTKModel(hb_model=model, grid_options=SensorGridOptions.Mesh)
         return model
-
-
+    
 @dataclass
 class BoxModelSensorGrid:
     model: Model

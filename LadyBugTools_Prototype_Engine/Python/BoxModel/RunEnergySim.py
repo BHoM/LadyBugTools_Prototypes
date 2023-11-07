@@ -17,13 +17,17 @@ from .results.energy_results import EnergySimResults
 from .results.energy_plotting import display_metrics_as_df, LoadBalanceBarPlot
 
 #New functionality
-def Run_EnergySimulation(model: Model, room, epw: EPW, path:str):
+def Run_EnergySimulation(model: Model, room, epw: EPW, path:str, program:str):
     #construction set
     epw_obj = EPW(epw)
     construct_set = BoxModelFabricProperties(epw = epw_obj).construction_set
     room.properties.energy.construction_set = construct_set
 
-    #program type
+    #using preset program user cases
+    bm_program_type = program
+
+    #custom program type --- for future development 
+    '''
     bm_program_type = ProgramType(identifier='BM_program_type',
                                     people = PeopleLoad().load, 
                                     lighting= LightingLoad().load,
@@ -32,9 +36,9 @@ def Run_EnergySimulation(model: Model, room, epw: EPW, path:str):
                                     setpoint= SetpointProgram().setpoint,
                                     ventilation= None
                                     )
-    
+    '''
     room.properties.energy.program_type = bm_program_type
-
+    
     #ideal air system
     ideal_air= IdealAirSystem(identifier='Idealair', economizer_type='NoEconomizer') #HVAC system params
     room.properties.energy.hvac = ideal_air #setting the HVAC system to defined params
