@@ -25,7 +25,7 @@ def Run_EnergySimulation(model: Model, room, epw: EPW, path:str, program:str):
     room.properties.energy.construction_set = construct_set
 
     #using preset program user cases
-    bm_program_type = program
+    bm_program_type = program_type_by_identifier(program)
 
     #custom program type --- for future development 
     '''
@@ -38,7 +38,7 @@ def Run_EnergySimulation(model: Model, room, epw: EPW, path:str, program:str):
                                     ventilation= None
                                     )
     '''
-    room.properties.energy.program_type = program_type_by_identifier(bm_program_type)
+    room.properties.energy.program_type = bm_program_type
     
     #ideal air system
     ideal_air= IdealAirSystem(identifier='Idealair', economizer_type='NoEconomizer') #HVAC system params
