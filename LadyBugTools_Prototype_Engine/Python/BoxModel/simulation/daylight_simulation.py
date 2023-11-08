@@ -44,3 +44,16 @@ class AnnualGlare:
     def run_annual_glare_simulation(self, path):
         run_settings = RecipeSettings(folder = path, reload_old=False)
         project_folder = self.recipe.run(run_settings, radiance_check=True, silent=True)
+
+@dataclass
+class DaylightFactor:
+    model: Model
+    def __post_init__(self):
+        self.recipe = Recipe('daylight-factor')
+        self.recipe.input_value_by_name('model', self.model)
+        self.recipe.input_value_by_name('grid-filter', None)
+        self.recipe.input_value_by_name('radiance-parameters', None)
+    
+    def run_daylight_factor(self, path):
+        run_settings = RecipeSettings(folder = path, reload_old=False)
+        project_folder = self.recipe.run(run_settings, radiance_check=True, silent=True)
