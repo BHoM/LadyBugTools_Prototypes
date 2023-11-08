@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from honeybee_energy.programtype import ProgramType
+from honeybee_energy.lib.programtypes import program_type_by_identifier
 from honeybee_energy.hvac.idealair import IdealAirSystem
 
 from honeybee_vtk.model import Model
@@ -37,7 +38,7 @@ def Run_EnergySimulation(model: Model, room, epw: EPW, path:str, program:str):
                                     ventilation= None
                                     )
     '''
-    room.properties.energy.program_type = bm_program_type
+    room.properties.energy.program_type = program_type_by_identifier(bm_program_type)
     
     #ideal air system
     ideal_air= IdealAirSystem(identifier='Idealair', economizer_type='NoEconomizer') #HVAC system params
@@ -59,8 +60,8 @@ def Run_EnergySimulation(model: Model, room, epw: EPW, path:str, program:str):
     return monthly_balance, metrics
 
 #to call from c#
-def energy_sim(model: Model, room, epw: EPW, path:str):
-    monthly_balance, metrics = Run_EnergySimulation(model, room, epw, path)
+def energy_sim(model: Model, room, epw: EPW, path:str, program: str):
+    monthly_balance, metrics = Run_EnergySimulation(model, room, epw, path, program)
     
     results_folder = make_folder_if_not_exist(path,"results")
 
