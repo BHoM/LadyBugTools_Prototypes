@@ -31,7 +31,6 @@ class DaylightSimResults:
                 grid_res = [float(v) for v in res_file.read_text().splitlines()]
                 metric['results']=grid_res
                 results.append(grid_res)
-                print(res_file)
 
              #Add results to sensor grids
             self.model.sensor_grids.add_data_fields(results, name=metric['name'], per_face=True,data_range=[0,100], colors=metric['colors'])
@@ -83,7 +82,7 @@ class DaylightFactorResults:
     def __post_init__(self):
         self.model=VTKModel(hb_model=self.hb_model, grid_options=SensorGridOptions.Mesh)
         self.annual_metrics = [
-                    {'folder': 'results', 'extension': 'res', 'name': 'Daylight Factor', 'colors': ColorSets.nuanced, 'color_index':1,'shortened': 'res'}                    
+                    {'folder': 'results', 'extension': 'res', 'name': 'Daylight Factor', 'colors': ColorSets.nuanced, 'color_index':1,'shortened': 'DF'}                    
                 ]
 
     def load_and_add_results(self):

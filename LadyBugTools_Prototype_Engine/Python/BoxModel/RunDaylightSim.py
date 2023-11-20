@@ -40,7 +40,7 @@ def RunDaylightSim(model: Model, wea: Wea, grid_size: float, path:str):
         metric = annual_metrics[i]
         grids = [model.properties.radiance.sensor_grids[0]]
 
-        plot = DaylightPlot(metric, grids)
+        plot = DaylightPlot(metric, grids, 0, 100)
         p,fig = plot.generate_fig()
         image_filepath = plot.save_fig(output_image_folder)
 
@@ -73,7 +73,7 @@ def RunAnnualGlareAutonomy(model: Model, wea: Wea, grid_size: float, path: str):
         metric = annual_metrics[i]
         grids = [model.properties.radiance.sensor_grids[0]]
 
-        plot = DaylightPlot(metric, grids)
+        plot = DaylightPlot(metric, grids, 20, 100)
         p,fig = plot.generate_fig()
         image_filepath = plot.save_fig(output_image_folder)
 
@@ -106,7 +106,7 @@ def RunDaylightFactor(model: Model, grid_size: float, path: str):
         metric = annual_metrics[i]
         grids = [model.properties.radiance.sensor_grids[0]]
 
-        plot = DaylightPlot(metric, grids)
+        plot = DaylightPlot(metric, grids, 0, 10)
         p,fig = plot.generate_fig()
         image_filepath = plot.save_fig(output_image_folder)
 

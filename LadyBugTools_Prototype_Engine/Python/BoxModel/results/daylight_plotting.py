@@ -1,3 +1,4 @@
+from codecs import xmlcharrefreplace_errors
 import os
 import zipfile
 from ..results.daylight_plotter import (
@@ -11,6 +12,7 @@ from dataclasses import dataclass
 from ladybug.color import Colorset
 import matplotlib.pyplot as plt
 from matplotlib.collections import PatchCollection
+import numpy as np
 
 def generate_zip(image_paths, zip_filename):
     '''takes a list of image paths and creates a zipfile with the desired filename'''
@@ -25,6 +27,9 @@ def generate_zip(image_paths, zip_filename):
 class DaylightPlot:
     metric: dict
     grids: list
+    lowerLegend: int
+    upperLegend: int
+
 
     def __post_init__(self):
         self.patches = self._generate_patches()
@@ -54,15 +59,17 @@ class DaylightPlot:
         p.set_array(self.metric['results'])
 
         fig, ax = plt.subplots()
+
         ax.add_collection(p)
         colorbar = fig.colorbar(p)
         colorbar.ax.set_title(self.metric['shortened'])
         ax.autoscale(True)
-        ax.axis('tight')
+        #ax.axis('tight')
         ax.axis('off')
         #ax.legend()
         plt.axis('square')
-        p.set_clim([0, 100])
+
+        p.set_clim([self.lowerLegend, self.upperLegend])
         #plt.subplots_adjust(left=0.1, right=0.2, top=0.2, bottom=0.1)
         return p, fig
 
