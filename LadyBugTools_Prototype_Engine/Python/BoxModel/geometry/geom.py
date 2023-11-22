@@ -94,7 +94,7 @@ class BoxModelModel:
 class BoxModelSensorGrid:
     model: Model
     grid_size: float
-    offset_distance: float= field(default=0.75)
+    offset_distance: float= field(default=0.1)
 
     def __post_init__(self):
         room= self.model.rooms[0]

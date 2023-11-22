@@ -44,7 +44,7 @@ def RunDaylightSim(model: Model, wea: Wea, grid_size: float, path:str):
         p,fig = plot.generate_fig()
         image_filepath = plot.save_fig(output_image_folder)
 
-    return vtk_path, image_filepath
+    return daylight_results.model, vtk_path, image_filepath
 
 def RunAnnualGlareAutonomy(model: Model, wea: Wea, grid_size: float, path: str):
     
@@ -77,7 +77,7 @@ def RunAnnualGlareAutonomy(model: Model, wea: Wea, grid_size: float, path: str):
         p,fig = plot.generate_fig()
         image_filepath = plot.save_fig(output_image_folder)
 
-    return vtk_path, image_filepath
+    return glare_results.model, vtk_path, image_filepath
 
 def RunDaylightFactor(model: Model, grid_size: float, path: str):
     
@@ -95,7 +95,7 @@ def RunDaylightFactor(model: Model, grid_size: float, path: str):
     daylightfactor_results.set_display_modes()
     annual_metrics = daylightfactor_results.annual_metrics
 
-    vtk_path = Path(daylightfactor_results.model.to_vtkjs(folder=path, name=model.identifier))
+    vtk_path = Path(daylightfactor_results.model.to_vtkjs(folder=results_folder, name=model.identifier))
     vtkjs_name = f'{model.identifier}_vtkjs'
     
     #generating plot images
@@ -110,4 +110,4 @@ def RunDaylightFactor(model: Model, grid_size: float, path: str):
         p,fig = plot.generate_fig()
         image_filepath = plot.save_fig(output_image_folder)
 
-    return vtk_path, image_filepath
+    return daylightfactor_results.model, vtk_path, image_filepath

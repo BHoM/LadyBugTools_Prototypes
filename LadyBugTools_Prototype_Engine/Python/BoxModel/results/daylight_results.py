@@ -65,8 +65,11 @@ class GlareSimResults:
                 results.append(grid_res)
 
              #Add results to sensor grids
-            self.model.sensor_grids.add_data_fields(results, name=metric['name'], per_face=True,data_range=[0,100], colors=metric['colors'])
+            self.model.sensor_grids.add_data_fields(results, name=metric['name'], per_face=True,data_range=[20,100], colors=metric['colors'])
             self.model.sensor_grids.color_by= 'Annual Glare Autonomy'
+            self.model.sensor_grids.display_mode = DisplayMode.SurfaceWithEdges
+            self.model.update_display_mode(DisplayMode.Wireframe)
+            self.model.shades.display_mode = DisplayMode.SurfaceWithEdges
     
     def set_display_modes(self):
         self.model.sensor_grids.display_mode = DisplayMode.SurfaceWithEdges
@@ -97,10 +100,15 @@ class DaylightFactorResults:
                 results.append(grid_res)
 
              #Add results to sensor grids
-            self.model.sensor_grids.add_data_fields(results, name=metric['name'], per_face=True,data_range=[0,100], colors=metric['colors'])
+            self.model.sensor_grids.add_data_fields(results, name=metric['name'], per_face=True,data_range=[0,10], colors=metric['colors'])
             self.model.sensor_grids.color_by= 'Daylight Factor'
-    
+            self.model.sensor_grids.display_mode = DisplayMode.SurfaceWithEdges
+            self.model.update_display_mode(DisplayMode.Wireframe)
+            self.model.shades.display_mode = DisplayMode.SurfaceWithEdges
+           
+        
     def set_display_modes(self):
+        self.model.shades.display_mode = DisplayMode.SurfaceWithEdges
         self.model.sensor_grids.display_mode = DisplayMode.SurfaceWithEdges
         self.model.update_display_mode(DisplayMode.Wireframe)
         self.model.shades.display_mode = DisplayMode.SurfaceWithEdges
