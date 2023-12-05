@@ -61,10 +61,9 @@ class DaylightPlot:
         fig, ax = plt.subplots()
 
         ax.add_collection(p)
-        colorbar = fig.colorbar(p)
+        colorbar = fig.colorbar(p,pad=-0.5)
         colorbar.ax.set_title(self.metric['shortened'])
         ax.autoscale(True)
-        #ax.axis('tight')
         ax.axis('off')
         #ax.legend()
         plt.axis('square')
@@ -76,6 +75,6 @@ class DaylightPlot:
     def save_fig(self, output_image_folder):
         metric_name = self.metric['name'].replace(' ', '_')
         image_filepath = os.path.join(output_image_folder, f'{metric_name}.png')
-        plt.savefig(image_filepath, dpi=500)
+        plt.savefig(image_filepath, dpi=500, bbox_inches='tight')
         return image_filepath
         
