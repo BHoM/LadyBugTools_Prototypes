@@ -4,6 +4,8 @@ from pathlib import Path
 from honeybee.model import Model
 from honeybee_vtk.legend_parameter import ColorSets
 from honeybee_vtk.model import Model as VTKModel, SensorGridOptions, DisplayMode
+from honeybee_radiance_postprocess import metrics
+import numpy as np
 
 
 @dataclass
@@ -35,6 +37,7 @@ class DaylightSimResults:
              #Add results to sensor grids
             self.model.sensor_grids.add_data_fields(results, name=metric['name'], per_face=True,data_range=[0,100], colors=metric['colors'])
             self.model.sensor_grids.color_by= 'Daylight Autonomy'
+        
     
     def set_display_modes(self):
         self.model.sensor_grids.display_mode = DisplayMode.SurfaceWithEdges

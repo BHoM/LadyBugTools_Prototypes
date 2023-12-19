@@ -1,11 +1,16 @@
 from abc import abstractproperty
+from codecs import backslashreplace_errors
 from copyreg import constructor
 from warnings import filterwarnings
 from honeybee_energy.boundarycondition import Adiabatic
 from honeybee.boundarycondition import Outdoors
 from honeybee.model import Model
+from honeybee.shade import Shade
 from honeybee.facetype import Floor
 from honeybee.room import Room
+from honeybee.face import Face
+from ladybug_geometry.geometry3d.face import Face3D ####
+from ladybug_geometry.geometry3d.pointvector import Vector3D, Point3D ###
 from honeybee_radiance.sensorgrid import SensorGrid
 from honeybee_vtk.model import Model as VTKModel, SensorGridOptions
 from honeybee_energy.material.glazing import EnergyWindowMaterialGlazing
@@ -17,7 +22,7 @@ from honeybee_energy.properties.aperture import ApertureEnergyProperties
 
 from honeybee_radiance.modifier.material import Glass
 from honeybee.aperture import Aperture
-
+import math
 #import glass material, window constuction & apply window construction)
 from dataclasses import dataclass, field
 
@@ -63,14 +68,22 @@ class BoxModelRoom:
                 horizontal_separation = self.glazing_properties.bay_width
             )
             modifier = Glass.from_single_transmittance("test", self.glazing_properties.glass_transm)
+            
+            ## Code for creating an inner shade to simulate wall thickness
+            z = self.room.faces[1].punched_geometry
+            wallShades = Shade("Offset_Wall", z, is_detached=True)
+            wallVector = self.room.faces[1].normal * self.glazing_properties.wall_thickness
+            self.room.add_indoor_shade(wallShades)
+            self.room.move_shades(wallVector)
+
             for aperture in self.room.faces[1].apertures:
                 aperture.extruded_border(self.glazing_properties.wall_thickness)
                 aperture.properties.radiance.modifier = modifier
-
+                
     def _assign_boundary_conditions(self):
         for face in self.room.faces:
             face.boundary_condition = Adiabatic()
-        self.room.faces[1].boundary_condition = Outdoors()
+        self.room.faces[1].boundary_condition = Outdoors()              
 
     def get_honeybee_room(self):
         return self.room
@@ -95,25 +108,59 @@ class BoxModelSensorGrid:
     model: Model
     grid_size: float
     offset_distance: float= field(default=0.1)
+    bayAmount: float= field(default=3)
+    
+    def setModelRoom(modelRoom):
+        boxmodelroom = modelRoom
 
     def __post_init__(self):
         room= self.model.rooms[0]
         for face in room.faces:
             if face.type ==Floor():
                 floor = face.geometry
-        identifier= 'Test'
+            
+        identifier= 'Test'        
+
+        ## Code for changing the size of the simulation grid
+        ## Taking input values
+        baywidth = self.boxmodelroom.bay_width
+        baycount = 3
+        depth = 10 
+        orientation = -math.pi/180*30 
+        offset = 1.3
+        
+        ## Creating a face that will be used to create a custom sized sensorgrid for the simulation based on user input.
+        ySize = depth-offset
+        if (self.bayAmount == 1):
+            grid_face3D = Face3D.from_rectangle(baywidth, ySize)
+            basepoint = [-2*baywidth, -9.5, 0]
+        elif(self.bayAmount == 2):
+            grid_face3D = Face3D.from_rectangle(2*baywidth, ySize)
+            basepoint = [-5/2*baywidth, -9.5, 0]
+        else:
+            grid_face3D = Face3D.from_rectangle(baywidth * baycount-1, ySize)
+            #basepoint = [-(baycount * baywidth - 0.), -9.5, 0]            
+            basepoint = [0.71 * math.cos(-orientation/2), 0.71 * math.sin(orientation/2), 0]
+            
+        originPoint = Point3D.from_array([0, 0, 0])
+        
+        ## Moving the new face to the right place in the model
+        movingVector = Vector3D.from_array(basepoint)
+        newFace3D = grid_face3D.rotate_xy(orientation, originPoint)
+        newFace3D = newFace3D.move(movingVector)
+
         self.sensor_grid = SensorGrid.from_face3d(identifier=identifier,
-                                        faces = [floor],
+                                        faces = [newFace3D],
                                         x_dim = self.grid_size,
                                         offset=self.offset_distance,
-                                        flip=True)
+                                        flip=False)
 
-def BoxModel(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north, wall_thickness, glass_transm):
+def BoxModel(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north, wall_thickness, glass_transm, grid_size, offset_distance):
      glazing_properties= BoxModelGlazing(glazing_ratio = glazing_ratio,
                                          sill_height = sill_height,
                                          window_height = window_height,
                                          bay_width = bay_width,
-                                         wall_thickness = wall_thickness,
+                                         wall_thickness = -1*wall_thickness,
                                          glass_transm = glass_transm,
                                          )
      
@@ -125,6 +172,8 @@ def BoxModel(glazing_ratio, sill_height, window_height, bay_width, bay_count, ro
                         north = north).get_honeybee_room()
             
      model=BoxModelModel(room).generate_honeybee_model()
+     #sensor_grid = BoxModelSensorGrid(model=model, grid_size=grid_size, offset_distance = offset_distance, bay_count=bay_count, orientation=north).sensor_grid
+     #model.properties.radiance.add_sensorgrid(sensor_grid)
      return model, room
 
 def BoxModelVTK(glazing_ratio, sill_height, window_height, bay_width, bay_count, room_depth, room_height, north, wall_thickness, glass_transm):

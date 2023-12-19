@@ -18,11 +18,11 @@ from .results.energy_results import EnergySimResults
 from .results.energy_plotting import display_metrics_as_df, LoadBalanceBarPlot
 
 #New functionality
-def Run_EnergySimulation(model: Model, room, epw: EPW, path:str, program:str):
+def Run_EnergySimulation(model: Model, epw: EPW, path:str, program:str):
     #construction set
     epw_obj = EPW(epw)
     construct_set = BoxModelFabricProperties(epw = epw_obj).construction_set
-    room.properties.energy.construction_set = construct_set
+    model.rooms[0].properties.energy.construction_set = construct_set
 
     #using preset program user cases
     bm_program_type = program_type_by_identifier(program)
@@ -38,11 +38,11 @@ def Run_EnergySimulation(model: Model, room, epw: EPW, path:str, program:str):
                                     ventilation= None
                                     )
     '''
-    room.properties.energy.program_type = bm_program_type
+    model.rooms[0].properties.energy.program_type = bm_program_type
     
     #ideal air system
     ideal_air= IdealAirSystem(identifier='Idealair', economizer_type='NoEconomizer') #HVAC system params
-    room.properties.energy.hvac = ideal_air #setting the HVAC system to defined params
+    model.rooms[0].properties.energy.hvac = ideal_air #setting the HVAC system to defined params
 
     #set up simulation output+ params
     sim_output = SimulationOutputSetup().return_sim_output()
@@ -60,8 +60,8 @@ def Run_EnergySimulation(model: Model, room, epw: EPW, path:str, program:str):
     return monthly_balance, metrics
 
 #to call from c#
-def energy_sim(model: Model, room, epw: EPW, path:str, program: str):
-    monthly_balance, metrics = Run_EnergySimulation(model, room, epw, path, program)
+def energy_sim(model: Model, epw: EPW, path:str, program: str):
+    monthly_balance, metrics = Run_EnergySimulation(model, epw, path, program)
     
     results_folder = make_folder_if_not_exist(path,"results")
 

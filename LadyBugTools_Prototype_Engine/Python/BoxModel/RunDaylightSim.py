@@ -13,11 +13,7 @@ from .results.daylight_plotting import DaylightPlot, generate_zip
 
 #new file for all daylight sim functionality, no streamlit
 
-def RunDaylightSim(model: Model, wea: Wea, grid_size: float, path:str):
-    # Generate sensor grid
-    sensor_grid = geom.BoxModelSensorGrid(model = model, grid_size = grid_size).sensor_grid
-    model.properties.radiance.add_sensor_grid(sensor_grid)
-
+def RunDaylightSim(model: Model, wea: Wea, path:str):
     # Run daylight simulation
     daylight_sim = DaylightSimulation(model=model, wea=wea)
     daylight_sim.run_annual_daylight_simulation(path)
@@ -46,12 +42,7 @@ def RunDaylightSim(model: Model, wea: Wea, grid_size: float, path:str):
 
     return daylight_results.model, vtk_path, image_filepath
 
-def RunAnnualGlareAutonomy(model: Model, wea: Wea, grid_size: float, path: str):
-    
-    # Generate sensor grid
-    sensor_grid = geom.BoxModelSensorGrid(model = model, grid_size = grid_size).sensor_grid
-    model.properties.radiance.add_sensor_grid(sensor_grid)
-    
+def RunAnnualGlareAutonomy(model: Model, wea: Wea, path: str):
     # Run annual glare simulation
     glare_sim = AnnualGlare(model=model, wea=wea)
     glare_sim.run_annual_glare_simulation(path)
@@ -79,12 +70,7 @@ def RunAnnualGlareAutonomy(model: Model, wea: Wea, grid_size: float, path: str):
 
     return glare_results.model, vtk_path, image_filepath
 
-def RunDaylightFactor(model: Model, grid_size: float, path: str):
-    
-    # Generate sensor grid
-    sensor_grid = geom.BoxModelSensorGrid(model = model, grid_size = grid_size).sensor_grid
-    model.properties.radiance.add_sensor_grid(sensor_grid)
-    
+def RunDaylightFactor(model: Model, path: str):  
     # Run daylight factor
     daylight_factor = DaylightFactor(model=model)
     daylight_factor.run_daylight_factor(path)
