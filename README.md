@@ -6,7 +6,7 @@ This repository can be used to create brand new BHoM Toolkits :rocket:
 - Start developing! :rocket:
 
 ## Configure development environment
-Learn how to [set up your development environment for BHoM here](https://bhom.xyz/documentation/Contributing/Getting-started-for-developers/). 
+Learn how to [Getting Started for Developers](https://bhom.xyz/documentation/Guides-and-Tutorials/Coding-with-BHoM/). 
 
 ## Implement the Toolkits
 See the instructions in [the documentation page on the BHoM_Toolkit](https://bhom.xyz/documentation/Basics/The-BHoM-Toolkit).
