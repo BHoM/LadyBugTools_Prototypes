@@ -16,11 +16,11 @@ class DaylightSimResults:
     def __post_init__(self):
         self.model=VTKModel(hb_model=self.hb_model, grid_options=SensorGridOptions.Mesh)
         self.annual_metrics = [
-                    {'folder': 'da', 'extension': 'da', 'name': 'Daylight Autonomy', 'colors': ColorSets.nuanced, 'color_index':1,'shortened': 'DA'},
-                    {'folder': 'cda', 'extension': 'cda', 'name': 'Continuous Daylight Autonomy', 'colors': ColorSets.nuanced,'color_index':1, 'shortened': 'cDa'},
-                    {'folder': 'udi', 'extension': 'udi', 'name': 'Useful Daylight Illuminance', 'colors': ColorSets.annual_comfort,'color_index':7, 'shortened': 'UDIa'},
-                    {'folder': 'udi_lower', 'extension': 'udi', 'name': 'Lower Daylight Illuminance', 'colors': ColorSets.cold_sensation,'color_index':11, 'shortened': 'UDIs'},
-                    {'folder': 'udi_upper', 'extension': 'udi', 'name': 'Excessive Daylight Illuminance', 'colors': ColorSets.shade_harm,'color_index':16, 'shortened': 'UDIe'}
+                    {'folder': 'da', 'extension': 'da', 'name': 'Daylight Autonomy', 'colors': ColorSets.nuanced, 'color_index':1,'shortened': 'DA %'},
+                    {'folder': 'cda', 'extension': 'cda', 'name': 'Continuous Daylight Autonomy', 'colors': ColorSets.nuanced,'color_index':1, 'shortened': 'cDa %'},
+                    {'folder': 'udi', 'extension': 'udi', 'name': 'Useful Daylight Illuminance', 'colors': ColorSets.annual_comfort,'color_index':7, 'shortened': 'UDIa %'},
+                    {'folder': 'udi_lower', 'extension': 'udi', 'name': 'Lower Daylight Illuminance', 'colors': ColorSets.cold_sensation,'color_index':11, 'shortened': 'UDIs %'},
+                    {'folder': 'udi_upper', 'extension': 'udi', 'name': 'Excessive Daylight Illuminance', 'colors': ColorSets.shade_harm,'color_index':16, 'shortened': 'UDIe %'}
                 ]
 
     def load_and_add_results(self):
@@ -53,7 +53,7 @@ class GlareSimResults:
     def __post_init__(self):
         self.model=VTKModel(hb_model=self.hb_model, grid_options=SensorGridOptions.Mesh)
         self.annual_metrics = [
-                    {'folder': 'ga', 'extension': 'ga', 'name': 'Annual Glare Autonomy', 'colors': ColorSets.nuanced, 'color_index':1,'shortened': 'GA'}                    
+                    {'folder': 'ga', 'extension': 'ga', 'name': 'Annual Glare Autonomy', 'colors': ColorSets.nuanced, 'color_index':1,'shortened': 'GA %'}                    
                 ]
 
     def load_and_add_results(self):
@@ -88,7 +88,7 @@ class DaylightFactorResults:
     def __post_init__(self):
         self.model=VTKModel(hb_model=self.hb_model, grid_options=SensorGridOptions.Mesh)
         self.annual_metrics = [
-                    {'folder': 'results', 'extension': 'res', 'name': 'Daylight Factor', 'colors': ColorSets.nuanced, 'color_index':1,'shortened': 'DF'}                    
+                    {'folder': 'results', 'extension': 'res', 'name': 'Daylight Factor', 'colors': ColorSets.nuanced, 'color_index':1,'shortened': 'DF %'}                    
                 ]
 
     def load_and_add_results(self):

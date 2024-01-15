@@ -75,6 +75,6 @@ class DaylightPlot:
     def save_fig(self, output_image_folder):
         metric_name = self.metric['name'].replace(' ', '_')
         image_filepath = os.path.join(output_image_folder, f'{metric_name}.png')
-        plt.savefig(image_filepath, dpi=500, bbox_inches='tight')
+        plt.savefig(image_filepath, dpi=500, bbox_inches='tight', transparent=True)
         return image_filepath
         
