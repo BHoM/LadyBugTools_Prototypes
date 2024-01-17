@@ -62,7 +62,7 @@ def RunAnnualGlareAutonomy(model: Model, wea: Wea, path: str):
 
     for i in range(len(annual_metrics)):
         metric = annual_metrics[i]
-        grids = [model.properties.radiance.sensor_grids[0]]
+        grids = [model.properties.radiance.sensor_grids]
 
         plot = DaylightPlot(metric, grids, 20, 100)
         p,fig = plot.generate_fig()
@@ -90,7 +90,7 @@ def RunDaylightFactor(model: Model, path: str):
 
     for i in range(len(annual_metrics)):
         metric = annual_metrics[i]
-        grids = [model.properties.radiance.sensor_grids[0]]
+        grids = [model.properties.radiance.sensor_grids]
 
         plot = DaylightPlot(metric, grids, 0, 10)
         p,fig = plot.generate_fig()
