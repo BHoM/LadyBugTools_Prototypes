@@ -30,9 +30,9 @@ class DaylightSimResults:
                 res_file = Path(
                     self.results_folder, metric['folder'], f'{grid.identifier}.{metric["extension"]}'
                 )
-                grid_res = [float(v) for v in res_file.read_text().splitlines()]
-                metric['results']=grid_res
+                grid_res = [float(v) for v in res_file.read_text().splitlines()]                
                 results.append(grid_res)
+            metric['results']=results
 
              #Add results to sensor grids
             self.model.sensor_grids.add_data_fields(results, name=metric['name'], per_face=True,data_range=[0,100], colors=metric['colors'])

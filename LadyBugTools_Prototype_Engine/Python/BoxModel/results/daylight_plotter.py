@@ -7,16 +7,17 @@ def vertices_from_grids(grids):
     """Takes a list of grids and returns a list of lists, of patches (mesh faces) per grid"""
     grids_faces_vertices = []
     for grid in grids:
-        mesh = grid.mesh
-        datatree_faces_vertices = mesh.face_vertices
-        faces = []
-        for face in datatree_faces_vertices:
-            face_vertices = []
-            for vertice in face:
-                x , y = vertice.x, vertice.y
-                face_vertices.append([x,y])
-            faces.append(face_vertices) 
-        grids_faces_vertices.append(faces) 
+        for g in grid:
+            mesh = g.mesh
+            datatree_faces_vertices = mesh.face_vertices
+            faces = []
+            for face in datatree_faces_vertices:
+                face_vertices = []
+                for vertice in face:
+                    x , y = vertice.x, vertice.y
+                    face_vertices.append([x,y])
+                faces.append(face_vertices) 
+            grids_faces_vertices.append(faces) 
     return grids_faces_vertices
 
 def add_starting_vertices_to_end(mesh_face_vertices):

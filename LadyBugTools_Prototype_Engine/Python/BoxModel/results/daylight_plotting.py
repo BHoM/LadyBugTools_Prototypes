@@ -42,7 +42,7 @@ class DaylightPlot:
         for grid in mesh_vertices:
             repeated_vertices = add_starting_vertices_to_end(grid)
             patch_vertices.append(repeated_vertices)
-
+            
         patches_per_grid = vertices_to_patches(patch_vertices)
         patches = flatten(patches_per_grid)
         return patches
@@ -56,11 +56,13 @@ class DaylightPlot:
 
     def generate_fig(self):
         p = PatchCollection(self.patches, cmap=self.cmap, alpha=1)
-        p.set_array(self.metric['results'])
-
         fig, ax = plt.subplots()
-
+        results = []
+        for result in self.metric['results']:
+            results.append(result)
+        p.set_array(flatten(results))
         ax.add_collection(p)
+        
         colorbar = fig.colorbar(p,pad=-0.5)
         colorbar.ax.set_title(self.metric['shortened'])
         ax.autoscale(True)
