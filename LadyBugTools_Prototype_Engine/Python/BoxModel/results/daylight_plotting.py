@@ -29,6 +29,7 @@ class DaylightPlot:
     grids: list
     lowerLegend: int
     upperLegend: int
+    legendOn: bool
 
 
     def __post_init__(self):
@@ -63,8 +64,9 @@ class DaylightPlot:
         p.set_array(flatten(results))
         ax.add_collection(p)
         
-        colorbar = fig.colorbar(p,pad=-0.5)
-        colorbar.ax.set_title(self.metric['shortened'])
+        if self.legendOn:
+            colorbar = fig.colorbar(p,pad=-0.5)
+            colorbar.ax.set_title(self.metric['shortened'])
         ax.autoscale(True)
         ax.axis('off')
         #ax.legend()

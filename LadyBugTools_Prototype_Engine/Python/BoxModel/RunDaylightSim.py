@@ -13,7 +13,7 @@ from .results.daylight_plotting import DaylightPlot, generate_zip
 
 #new file for all daylight sim functionality, no streamlit
 
-def RunDaylightSim(model: Model, wea: Wea, path:str):
+def RunDaylightSim(model: Model, wea: Wea, path:str, legendOn:bool=True):
     # Run daylight simulation
     daylight_sim = DaylightSimulation(model=model, wea=wea)
     daylight_sim.run_annual_daylight_simulation(path)
@@ -36,13 +36,13 @@ def RunDaylightSim(model: Model, wea: Wea, path:str):
         metric = annual_metrics[i]
         grids = [model.properties.radiance.sensor_grids]
 
-        plot = DaylightPlot(metric, grids, 0, 100)
+        plot = DaylightPlot(metric, grids, 0, 100, legendOn)
         p,fig = plot.generate_fig()
         image_filepath = plot.save_fig(output_image_folder)
 
     return daylight_results.model, vtk_path, image_filepath
 
-def RunAnnualGlareAutonomy(model: Model, wea: Wea, path: str):
+def RunAnnualGlareAutonomy(model: Model, wea: Wea, path: str, legendOn:bool):
     # Run annual glare simulation
     glare_sim = AnnualGlare(model=model, wea=wea)
     glare_sim.run_annual_glare_simulation(path)
@@ -64,13 +64,13 @@ def RunAnnualGlareAutonomy(model: Model, wea: Wea, path: str):
         metric = annual_metrics[i]
         grids = [model.properties.radiance.sensor_grids]
 
-        plot = DaylightPlot(metric, grids, 20, 100)
+        plot = DaylightPlot(metric, grids, 20, 100, legendOn)
         p,fig = plot.generate_fig()
         image_filepath = plot.save_fig(output_image_folder)
 
     return glare_results.model, vtk_path, image_filepath
 
-def RunDaylightFactor(model: Model, path: str):  
+def RunDaylightFactor(model: Model, path: str, legendOn:bool):  
     # Run daylight factor
     daylight_factor = DaylightFactor(model=model)
     daylight_factor.run_daylight_factor(path)
@@ -92,7 +92,7 @@ def RunDaylightFactor(model: Model, path: str):
         metric = annual_metrics[i]
         grids = [model.properties.radiance.sensor_grids]
 
-        plot = DaylightPlot(metric, grids, 0, 10)
+        plot = DaylightPlot(metric, grids, 0, 10, legendOn)
         p,fig = plot.generate_fig()
         image_filepath = plot.save_fig(output_image_folder)
 
