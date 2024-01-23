@@ -1,7 +1,9 @@
+from xml.dom import INUSE_ATTRIBUTE_ERR
 import numpy as np
 import matplotlib.colors as colors
 from matplotlib.path import Path as MPLPath
 from matplotlib.patches import PathPatch
+import math
 
 def vertices_from_grids(grids):
     """Takes a list of grids and returns a list of lists, of patches (mesh faces) per grid"""
@@ -68,3 +70,49 @@ def build_custom_continuous_cmap(rgb):
     cdict = {'red':red,'green':green,'blue':blue}
     new_cmap = colors.LinearSegmentedColormap('new_cmap',segmentdata=cdict)
     return new_cmap
+
+def wireframe_rectangles(model):
+    ''' Generates dimensions and anchor points for the rectangle representing the walls of the Box Model.'''
+    face = model.faces[0].geometry
+    point = face.lower_left_corner
+    [x, y] = point.x, point.y
+    upper_right = face.upper_right_corner
+    [x1, y1] = upper_right.x, upper_right.y
+    width = x1-x
+    depth = y1-y
+    
+    return (x,y), width, depth
+
+def wireframe_windows(model):   
+    ''' Generates dimensions for rectangles representing windows and wall thickness of the Box Model.'''
+    anchor_points=[]
+    i=0 
+    box_model = model
+    # if the simulation is done on one model
+    if len(box_model.faces) == 6:        
+        is_array=False
+        amount = len(box_model.apertures) 
+    # if the simulation is done as an array
+    else:         
+        is_array=True
+        amount = len(box_model.apertures) / 8
+        
+    # taking the anchor point for each window
+    while i < amount:
+        window = box_model.apertures[i]
+        face=window.geometry
+        point = face.lower_left_corner
+        [x, y] = point.x, point.y        
+        anchor_points.append((x,y))
+        i+=1
+        
+    # calculating width and depth of the window reveals
+    point1 = face.lower_right_corner
+    x1 = point1.x
+    y = point1.y
+    inner_wall = box_model.shades[0].geometry
+    inner_point = inner_wall.lower_left_corner
+    y1 = inner_point.y
+    width = x1-x
+    depth = y1-y    
+    return anchor_points, width, depth, inner_point, is_array

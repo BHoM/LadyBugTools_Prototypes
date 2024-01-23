@@ -10,10 +10,11 @@ from .file_utils import make_folder_if_not_exist
 import os
 from .results.daylight_results import DaylightSimResults, GlareSimResults, DaylightFactorResults
 from .results.daylight_plotting import DaylightPlot, generate_zip
+import math
 
 #new file for all daylight sim functionality, no streamlit
 
-def RunDaylightSim(model: Model, wea: Wea, path:str, legendOn:bool=True):
+def RunDaylightSim(model: Model, wea: Wea, path:str, legendOn:bool=True, wireframeOn:bool=True):
     # Run daylight simulation
     daylight_sim = DaylightSimulation(model=model, wea=wea)
     daylight_sim.run_annual_daylight_simulation(path)
@@ -32,17 +33,22 @@ def RunDaylightSim(model: Model, wea: Wea, path:str, legendOn:bool=True):
     image_paths=[]
     output_image_folder = os.path.join(path, 'annual_daylight\\results')
 
+    if len(model.faces) == 6:
+        angle = 2*math.pi - model.faces[1].geometry.azimuth
+        azimuth = angle * 180/math.pi
+        model.rotate_xy(angle=-azimuth, origin=model.rooms[0].center)
+    
     for i in range(len(annual_metrics)):
         metric = annual_metrics[i]
         grids = [model.properties.radiance.sensor_grids]
 
-        plot = DaylightPlot(metric, grids, 0, 100, legendOn)
+        plot = DaylightPlot(model, metric, grids, 0, 100, legendOn, wireframeOn)
         p,fig = plot.generate_fig()
         image_filepath = plot.save_fig(output_image_folder)
 
     return daylight_results.model, vtk_path, image_filepath
 
-def RunAnnualGlareAutonomy(model: Model, wea: Wea, path: str, legendOn:bool):
+def RunAnnualGlareAutonomy(model: Model, wea: Wea, path: str, legendOn: bool = True, wireframeOn: bool = True):
     # Run annual glare simulation
     glare_sim = AnnualGlare(model=model, wea=wea)
     glare_sim.run_annual_glare_simulation(path)
@@ -60,17 +66,22 @@ def RunAnnualGlareAutonomy(model: Model, wea: Wea, path: str, legendOn:bool):
     image_paths=[]
     output_image_folder = os.path.join(path, 'imageless_annual_glare\\results')
 
+    if len(model.faces) == 6:
+            angle = 2*math.pi - model.faces[1].geometry.azimuth
+            azimuth = angle * 180/math.pi
+            model.rotate_xy(angle=-azimuth, origin=model.rooms[0].center)
+            
     for i in range(len(annual_metrics)):
         metric = annual_metrics[i]
         grids = [model.properties.radiance.sensor_grids]
 
-        plot = DaylightPlot(metric, grids, 20, 100, legendOn)
+        plot = DaylightPlot(model, metric, grids, 20, 100, legendOn, wireframeOn)
         p,fig = plot.generate_fig()
         image_filepath = plot.save_fig(output_image_folder)
 
     return glare_results.model, vtk_path, image_filepath
 
-def RunDaylightFactor(model: Model, path: str, legendOn:bool):  
+def RunDaylightFactor(model: Model, path: str, legendOn: bool = True, wireframeOn: bool = True):  
     # Run daylight factor
     daylight_factor = DaylightFactor(model=model)
     daylight_factor.run_daylight_factor(path)
@@ -87,12 +98,17 @@ def RunDaylightFactor(model: Model, path: str, legendOn:bool):
     #generating plot images
     image_paths=[]
     output_image_folder = os.path.join(path, 'daylight_factor\\results')
+    
+    if len(model.faces) == 6:
+        angle = 2*math.pi - model.faces[1].geometry.azimuth
+        azimuth = angle * 180/math.pi
+        model.rotate_xy(angle=-azimuth, origin=model.rooms[0].center)
 
     for i in range(len(annual_metrics)):
         metric = annual_metrics[i]
         grids = [model.properties.radiance.sensor_grids]
 
-        plot = DaylightPlot(metric, grids, 0, 10, legendOn)
+        plot = DaylightPlot(model, metric, grids, 0, 10, legendOn, wireframeOn)
         p,fig = plot.generate_fig()
         image_filepath = plot.save_fig(output_image_folder)
 
