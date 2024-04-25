@@ -1,0 +1,6 @@
+lbt-honeybee
+matplotlib
+numpy
+pandas
+scikit-learn
+scipy
