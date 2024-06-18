@@ -14,14 +14,10 @@ from enum import Enum
 from pathlib import Path
 from uuid import uuid4
 
-# pylint: enable=E0401
-
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
-from matplotlib.figure import Figure
 import numpy as np
-from scipy.spatial import ConvexHull
 import pandas as pd
 from honeybee.boundarycondition import Outdoors
 from honeybee.config import folders as hb_folders
@@ -34,57 +30,44 @@ from honeybee_energy.construction.window import WindowConstruction
 from honeybee_energy.hvac.idealair import IdealAirSystem
 from honeybee_energy.internalmass import InternalMass
 from honeybee_energy.lib.constructionsets import (
-    ConstructionSet,
-    construction_set_by_identifier,
-)
-from honeybee_energy.lib.scheduletypelimits import humidity, temperature
-from honeybee_energy.schedule.ruleset import ScheduleRuleset
-from honeybee_energy.lib.scheduletypelimits import schedule_type_limit_by_identifier
+    ConstructionSet, construction_set_by_identifier)
+from honeybee_energy.lib.scheduletypelimits import (
+    humidity, schedule_type_limit_by_identifier, temperature)
 from honeybee_energy.result.loadbalance import LoadBalance, SQLiteResult
 from honeybee_energy.run import run_idf, run_osw, to_openstudio_osw
 from honeybee_energy.schedule.fixedinterval import ScheduleFixedInterval
-from honeybee_energy.simulation.parameter import (
-    RunPeriod,
-    ShadowCalculation,
-    SimulationControl,
-    SimulationOutput,
-    SimulationParameter,
-    SizingParameter,
-)
+from honeybee_energy.schedule.ruleset import ScheduleRuleset
+from honeybee_energy.simulation.parameter import (RunPeriod, ShadowCalculation,
+                                                  SimulationControl,
+                                                  SimulationOutput,
+                                                  SimulationParameter,
+                                                  SizingParameter)
 from ladybug.wea import EPW, AnalysisPeriod, HourlyContinuousCollection
 from ladybug_geometry.geometry2d import Point2D, Polygon2D, Vector2D
-from ladybug_geometry.geometry3d import Face3D, Point3D, Vector3D, LineSegment3D
+from ladybug_geometry.geometry3d import (Face3D, LineSegment3D, Point3D,
+                                         Vector3D)
+from matplotlib.figure import Figure
+from scipy.spatial import ConvexHull
 
-from . import FORMATTING, LOAD_BALANCE_TERMS, DPI, FIGSIZE_RECTANGLE, FIGSIZE_SQUARE
-from .programtypes import ProgramType, _building_program_type_by_identifier
-from .enum import (
-    BuildingForm,
-    BuildingType,
-    ConstructionType,
-    EconomizerType,
-    TerrainType,
-    Vintage,
-    typical_construction_type,
-    typical_floor_height,
-    typical_footprint_area,
-    typical_gfa,
-    typical_glazing_ratio,
-    typical_num_floors,
-    typical_context_distance,
-)
-from .utilities import (
-    angle_from_north,
-    cardinality,
-    contrasting_color,
-    estimate_sri_properties,
-    plot_diurnal,
-    plot_monthly_stacked_bar,
-    plot_pie,
-    plot_heating_cooling_series,
-    plot_duration_curve,
-    typical_lift_energy,
-    convert_dataframe,
-)
+from . import (DPI, FIGSIZE_RECTANGLE, FIGSIZE_SQUARE, FORMATTING,
+               LOAD_BALANCE_TERMS)
+from .enum import (BuildingForm, BuildingType, ConstructionType,
+                   EconomizerType, TerrainType, Vintage,
+                   typical_construction_type, typical_context_distance,
+                   typical_floor_height, typical_footprint_area, typical_gfa,
+                   typical_glazing_ratio, typical_num_floors)
+from .plot import (plot_diurnal, plot_duration_curve,
+                   plot_heating_cooling_series, plot_monthly_stacked_bar,
+                   plot_pie)
+from .programs.programtypes import ProgramType, get_program
+from .utilities import (angle_from_north, cardinality, contrasting_color,
+                        convert_dataframe, estimate_sri_properties,
+                        typical_lift_energy)
+
+# pylint: enable=E0401
+
+
+logger = logging.getLogger(__name__.split(".", maxsplit=1)[0])
 
 
 class MPED:
@@ -313,7 +296,7 @@ class MPED:
 
         excel_file = Path(excel_file).absolute()
 
-        logging.info(f"Creating case/s from {excel_file}")  # pylint: disable=W1203
+        logger.info(f"Creating case/s from {excel_file}")  # pylint: disable=W1203
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
@@ -464,7 +447,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = BuildingType.OFFICE_MEDIUM
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %s", self, prop_name, value
             )
         else:
@@ -485,7 +468,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = typical_construction_type(building_type=self.building_type)
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %s", self, prop_name, value
             )
         else:
@@ -506,7 +489,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = Vintage.ASHRAE_901_2019
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %s", self, prop_name, value
             )
         else:
@@ -527,7 +510,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = TerrainType.URBAN
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %s", self, prop_name, value
             )
         else:
@@ -548,7 +531,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = BuildingForm.CUBOID
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %s", self, prop_name, value
             )
         else:
@@ -569,7 +552,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = EconomizerType.NO_ECONOMIZER
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %s",
                 self,
                 prop_name,
@@ -593,7 +576,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 0.75
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.2f",
                 self,
                 prop_name,
@@ -616,7 +599,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = typical_gfa(building_type=self.building_type)
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.0fm2",
                 self,
                 prop_name,
@@ -646,7 +629,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = typical_footprint_area(building_type=self.building_type)
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.0fm2",
                 self,
                 prop_name,
@@ -676,7 +659,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = typical_num_floors(building_type=self.building_type)
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.0f",
                 self,
                 prop_name,
@@ -699,7 +682,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = typical_floor_height(building_type=self.building_type)
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.0fm",
                 self,
                 prop_name,
@@ -720,7 +703,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 1
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.1f",
                 self,
                 prop_name,
@@ -743,7 +726,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 0
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.0f°",
                 self,
                 prop_name,
@@ -766,7 +749,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = [typical_glazing_ratio(building_type=self.building_type)] * 8
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.2f for all facade orientations",
                 self,
                 prop_name,
@@ -796,7 +779,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 0
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.2f",
                 self,
                 prop_name,
@@ -819,7 +802,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = [0.5] * 8
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.2fW/m2K for all facade orientations",
                 self,
                 prop_name,
@@ -849,7 +832,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 0.5
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.3fW/m2K",
                 self,
                 prop_name,
@@ -872,7 +855,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 0.3
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.3fW/m2K",
                 self,
                 prop_name,
@@ -895,7 +878,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = [2] * 8
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.3fW/m2K for all facade orientations",
                 self,
                 prop_name,
@@ -925,7 +908,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = [0.4] * 8
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.3f for all facade orientations",
                 self,
                 prop_name,
@@ -955,7 +938,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 2
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.3fW/m2K",
                 self,
                 prop_name,
@@ -978,7 +961,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 0.4
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.3f",
                 self,
                 prop_name,
@@ -1001,7 +984,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 35
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.0f",
                 self,
                 prop_name,
@@ -1024,7 +1007,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = [35] * 8
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %0.0f for all facade orientations",
                 self,
                 prop_name,
@@ -1053,12 +1036,12 @@ class MPED:
         """Setter for the occupant_density property."""
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
-            program = _building_program_type_by_identifier(
+            program = get_program(
                 building_type=self.building_type.value
             ).duplicate()
             if program.people is None:
                 value = 0
-                logging.info(
+                logger.info(
                     "%s - no default %s is available for this building type, occupant_density set to %.3f person/m2",
                     self,
                     prop_name,
@@ -1066,7 +1049,7 @@ class MPED:
                 )
             else:
                 value = program.people.people_per_area
-                logging.info(
+                logger.info(
                     "%s - no %s provided, using default value of %.3f person/m2",
                     self,
                     prop_name,
@@ -1088,12 +1071,12 @@ class MPED:
         """Setter for the lighting_power_density property."""
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
-            program = _building_program_type_by_identifier(
+            program = get_program(
                 building_type=self.building_type.value
             ).duplicate()
             if program.lighting is None:
                 value = 0
-                logging.info(
+                logger.info(
                     "%s - no default %s is available for this building type, set to %.3fW/m2",
                     self,
                     prop_name,
@@ -1101,7 +1084,7 @@ class MPED:
                 )
             else:
                 value = program.lighting.watts_per_area
-                logging.info(
+                logger.info(
                     "%s - no %s is provided, using default value of %.3fW/m2",
                     self,
                     prop_name,
@@ -1124,12 +1107,12 @@ class MPED:
         """Setter for the equipment_power_density property."""
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
-            program = _building_program_type_by_identifier(
+            program = get_program(
                 building_type=self.building_type.value
             ).duplicate()
             if program.electric_equipment is None:
                 value = 0
-                logging.info(
+                logger.info(
                     "%s - no default %s is available for this building type, set to %.3fW/m2",
                     self,
                     prop_name,
@@ -1137,7 +1120,7 @@ class MPED:
                 )
             else:
                 value = program.electric_equipment.watts_per_area
-                logging.info(
+                logger.info(
                     "%s - no %s is provided, using default value of %.3fW/m2",
                     self,
                     prop_name,
@@ -1160,12 +1143,12 @@ class MPED:
         """Setter for the infiltration_rate property."""
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
-            program = _building_program_type_by_identifier(
+            program = get_program(
                 building_type=self.building_type.value
             ).duplicate()
             if program.infiltration is None:
                 value = 0.0006
-                logging.info(
+                logger.info(
                     "%s - no default %s is available for this building type, set to %.6fm3/s/m2",
                     self,
                     prop_name,
@@ -1173,7 +1156,7 @@ class MPED:
                 )
             else:
                 value = program.infiltration.flow_per_exterior_area
-                logging.info(
+                logger.info(
                     "%s - no %s is provided, using default value of %.6fm3/s/m2",
                     self,
                     prop_name,
@@ -1196,12 +1179,12 @@ class MPED:
         """Setter for the ventilation_rate property."""
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
-            program = _building_program_type_by_identifier(
+            program = get_program(
                 building_type=self.building_type.value
             ).duplicate()
             if program.ventilation is None:
                 value = 0
-                logging.info(
+                logger.info(
                     "%s - no default %s is available for this building type, set to %.6fm3/s/person",
                     self,
                     prop_name,
@@ -1209,7 +1192,7 @@ class MPED:
                 )
             else:
                 value = program.ventilation.flow_per_person
-                logging.info(
+                logger.info(
                     "%s - no %s is provided, using default value of %.6fm3/s/m2",
                     self,
                     prop_name,
@@ -1232,11 +1215,11 @@ class MPED:
         """Setter for the heating_setpoint property."""
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
-            program = _building_program_type_by_identifier(
+            program = get_program(
                 building_type=self.building_type.value
             ).duplicate()
             value = program.setpoint.heating_setpoint
-            logging.info(
+            logger.info(
                 "%s - no %s is provided, using default value of %.1f°C",
                 self,
                 prop_name,
@@ -1256,11 +1239,11 @@ class MPED:
         """Setter for the heating_setback property."""
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
-            program = _building_program_type_by_identifier(
+            program = get_program(
                 building_type=self.building_type.value
             ).duplicate()
             value = program.setpoint.heating_setback
-            logging.info(
+            logger.info(
                 "%s - no %s is provided, using default value of %.1f°C",
                 self,
                 prop_name,
@@ -1280,11 +1263,11 @@ class MPED:
         """Setter for the cooling_setpoint property."""
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
-            program = _building_program_type_by_identifier(
+            program = get_program(
                 building_type=self.building_type.value
             ).duplicate()
             value = program.setpoint.cooling_setpoint
-            logging.info(
+            logger.info(
                 "%s - no %s is provided, using default value of %.1f°C",
                 self,
                 prop_name,
@@ -1304,11 +1287,11 @@ class MPED:
         """Setter for the cooling_setback property."""
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
-            program = _building_program_type_by_identifier(
+            program = get_program(
                 building_type=self.building_type.value
             ).duplicate()
             value = program.setpoint.cooling_setback
-            logging.info(
+            logger.info(
                 "%s - no %s is provided, using default value of %.1f°C",
                 self,
                 prop_name,
@@ -1328,13 +1311,13 @@ class MPED:
         """Setter for the humidifying_setpoint property."""
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
-            program = _building_program_type_by_identifier(
+            program = get_program(
                 building_type=self.building_type.value
             ).duplicate()
             value = program.setpoint.humidifying_setpoint
             if value is None:
                 value = 40
-            logging.info(
+            logger.info(
                 "%s - no %s is provided, using default value of %.1f%%",
                 self,
                 prop_name,
@@ -1358,13 +1341,13 @@ class MPED:
         """Setter for the humidifying_setback property."""
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
-            program = _building_program_type_by_identifier(
+            program = get_program(
                 building_type=self.building_type.value
             ).duplicate()
             value = program.setpoint.humidifying_setback
             if value is None:
                 value = 0
-            logging.info(
+            logger.info(
                 "%s - no %s is provided, using default value of %.1f%%",
                 self,
                 prop_name,
@@ -1388,13 +1371,13 @@ class MPED:
         """Setter for the dehumidifying_setpoint property."""
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
-            program = _building_program_type_by_identifier(
+            program = get_program(
                 building_type=self.building_type.value
             ).duplicate()
             value = program.setpoint.dehumidifying_setpoint
             if value is None:
                 value = 60
-            logging.info(
+            logger.info(
                 "%s - no %s is provided, using default value of %.1f%%",
                 self,
                 prop_name,
@@ -1418,13 +1401,13 @@ class MPED:
         """Setter for the dehumidifying_setback property."""
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
-            program = _building_program_type_by_identifier(
+            program = get_program(
                 building_type=self.building_type.value
             ).duplicate()
             value = program.setpoint.dehumidifying_setback
             if value is None:
                 value = 100
-            logging.info(
+            logger.info(
                 "%s - no %s is provided, using default value of %.1f%%",
                 self,
                 prop_name,
@@ -1449,7 +1432,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 0
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.2f",
                 self,
                 prop_name,
@@ -1472,7 +1455,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 0
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.2f",
                 self,
                 prop_name,
@@ -1523,7 +1506,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 1
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.2f",
                 self,
                 prop_name,
@@ -1546,7 +1529,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 1
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.2f",
                 self,
                 prop_name,
@@ -1569,7 +1552,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 1.8
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.2fW/l/s",
                 self,
                 prop_name,
@@ -1592,7 +1575,7 @@ class MPED:
         prop_name = inspect.currentframe().f_code.co_name
         if value is None:
             value = 0.35
-            logging.info(
+            logger.info(
                 "%s - no %s provided, using default value of %.2fW/l/s",
                 self,
                 prop_name,
@@ -2152,7 +2135,7 @@ class MPED:
     @property
     def default_program(self) -> ProgramType:
         """Get the default program for the building."""
-        return _building_program_type_by_identifier(
+        return get_program(
             building_type=self.building_type.value
         )
 
@@ -2192,14 +2175,14 @@ class MPED:
         """Simulate the results and return the SQL file."""
 
         if self._results_exist:
-            logging.info("%s - Reloading existing results", self)
+            logger.info("%s - Reloading existing results", self)
             return self._sql_file
 
         for fp in self.simulation_directory.glob("**/*"):
             if fp.is_file():
                 fp.unlink()
 
-        logging.info("%s - Simulating results", self)
+        logger.info("%s - Simulating results", self)
 
         # create model and save json to disk
         self.model()
@@ -2296,7 +2279,7 @@ class MPED:
         )
 
         if filename.exists():
-            logging.info(
+            logger.info(
                 "%s - Reloading %s", self, inspect.currentframe().f_code.co_name
             )
             return pd.read_csv(
@@ -2306,7 +2289,7 @@ class MPED:
                 index_col=0,
             )
 
-        logging.info("%s - Processing %s", self, inspect.currentframe().f_code.co_name)
+        logger.info("%s - Processing %s", self, inspect.currentframe().f_code.co_name)
         lb = LoadBalance.from_sql_file(
             model=self.model(), sql_path=self._sql_file.as_posix()
         )
@@ -2346,7 +2329,7 @@ class MPED:
         )
 
         if filename.exists():
-            logging.info("%s - Reloading thermal load balance normalised", self)
+            logger.info("%s - Reloading thermal load balance normalised", self)
             return pd.read_csv(
                 filename,
                 header=0,
@@ -2354,7 +2337,7 @@ class MPED:
                 index_col=0,
             )
 
-        logging.info("%s - Processing thermal load balance normalised", self)
+        logger.info("%s - Processing thermal load balance normalised", self)
         lb_df_normalised = self.thermal_load_balance() / (
             self.model().floor_area * self.number_of_buildings
         )
@@ -2377,7 +2360,7 @@ class MPED:
         )
 
         if filename.exists():
-            logging.info("%s - Reloading energy consumption results", self)
+            logger.info("%s - Reloading energy consumption results", self)
             return pd.read_csv(
                 filename,
                 header=0,
@@ -2385,7 +2368,7 @@ class MPED:
                 index_col=0,
             )
 
-        logging.info("%s - Processing energy consumption results", self)
+        logger.info("%s - Processing energy consumption results", self)
         sqlr = SQLiteResult(file_path=self._sql_file.as_posix())
         idx = self.default_index
 
@@ -2403,7 +2386,7 @@ class MPED:
                 )
             )
         if len(cooling_energy) == 0:
-            logging.warning("%s - No cooling energy available!", self)
+            logger.warning("%s - No cooling energy available!", self)
             cooling_energy = pd.Series(np.zeros(8760), index=idx, name="Cooling (Wh)")
         else:
             cooling_energy = (
@@ -2424,7 +2407,7 @@ class MPED:
                 )
             )
         if len(heating_energy) == 0:
-            logging.warning(f"{self} - No heating energy available!")
+            logger.warning(f"{self} - No heating energy available!")
             heating_energy = pd.Series(np.zeros(8760), index=idx, name="Heating (Wh)")
         else:
             heating_energy = (
@@ -2458,7 +2441,7 @@ class MPED:
                 )
             )
         if len(service_hot_water_energy) == 0:
-            logging.warning(f"{self} - No service hot water energy available!")
+            logger.warning(f"{self} - No service hot water energy available!")
             service_hot_water_energy = pd.Series(
                 np.zeros(8760), index=idx, name="Service Hot Water (Wh)"
             )
@@ -2484,7 +2467,7 @@ class MPED:
                 )
             )
         if len(ventilation_rate) == 0:
-            logging.warning("%s - No ventilation rate available!", self)
+            logger.warning("%s - No ventilation rate available!", self)
             ventilation_rate = pd.Series(
                 np.zeros(8760), index=idx, name="Ventilation (L/s)"
             )
@@ -2506,7 +2489,7 @@ class MPED:
                 )
             )
         if len(lighting_energy) == 0:
-            logging.warning("%s - No lighting energy available!", self)
+            logger.warning("%s - No lighting energy available!", self)
             lighting_energy = pd.Series(np.zeros(8760), index=idx, name="Lighting (Wh)")
         else:
             lighting_energy = (
@@ -2527,7 +2510,7 @@ class MPED:
                 )
             )
         if len(equipment_energy) == 0:
-            logging.warning("%s- No equipment energy available!", self)
+            logger.warning("%s- No equipment energy available!", self)
             equipment_energy = pd.Series(
                 np.zeros(8760), index=idx, name="Electric Equipment (Wh)"
             )
@@ -2589,7 +2572,7 @@ class MPED:
         )
 
         if filename.exists():
-            logging.info("%s - Reloading energy consumption normalised", self)
+            logger.info("%s - Reloading energy consumption normalised", self)
             return pd.read_csv(
                 filename,
                 header=0,
@@ -2597,7 +2580,7 @@ class MPED:
                 index_col=0,
             )
 
-        logging.info("%s - Processing energy consumption normalised", self)
+        logger.info("%s - Processing energy consumption normalised", self)
         df_energy_normalised = self.energy_consumption() / (
             self.number_of_buildings * self.model().floor_area
         )
@@ -2621,7 +2604,7 @@ class MPED:
         )
 
         if filename.exists():
-            logging.info("%s - Reloading energy demand results", self)
+            logger.info("%s - Reloading energy demand results", self)
             return pd.read_csv(
                 filename,
                 header=0,
@@ -2629,7 +2612,7 @@ class MPED:
                 index_col=0,
             )
 
-        logging.info("%s - Processing energy demand results", self)
+        logger.info("%s - Processing energy demand results", self)
         energy_consumption = self.energy_consumption()
         energy_demand = energy_consumption.copy()
 
@@ -2668,7 +2651,7 @@ class MPED:
         )
 
         if filename.exists():
-            logging.info("%s - Reloading energy demand normalised", self)
+            logger.info("%s - Reloading energy demand normalised", self)
             return pd.read_csv(
                 filename,
                 header=0,
@@ -2676,7 +2659,7 @@ class MPED:
                 index_col=0,
             )
 
-        logging.info("%s - Processing energy demand normalised", self)
+        logger.info("%s - Processing energy demand normalised", self)
         df_energy_normalised = self.energy_demand() / (
             self.number_of_buildings * self.model().floor_area
         )
@@ -2699,10 +2682,10 @@ class MPED:
         )
 
         if filename.exists():
-            logging.info("%s - Reloading room conditions", self)
+            logger.info("%s - Reloading room conditions", self)
             return pd.read_csv(filename, header=0, parse_dates=True, index_col=0)
 
-        logging.info("%s - Processing room conditions", self)
+        logger.info("%s - Processing room conditions", self)
         sqlr = SQLiteResult(file_path=self._sql_file.as_posix())
         idx = self.default_index
 
@@ -3388,7 +3371,7 @@ class MPED:
             self.load_duration_curve_normalised()
 
         except Exception as e:
-            logging.error("%s - %s", self, e)
+            logger.error("%s - %s", self, e)
 
         plt.close("all")
 
@@ -3440,7 +3423,7 @@ def run_multiple(objects: list[MPED]) -> list[MPED]:
             cases[f"{obj.project_identifier}::{obj.case_identifier}"].append(obj)
 
     for case, objs in cases.items():
-        logging.info("Combining results and summarising %s", case)
+        logger.info("Combining results and summarising %s", case)
         summarise_case(objs)
 
     return objects

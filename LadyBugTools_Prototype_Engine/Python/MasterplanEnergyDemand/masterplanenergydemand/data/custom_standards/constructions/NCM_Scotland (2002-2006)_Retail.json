@@ -1,0 +1,920 @@
+{
+    "NCM_Solid_wall_SCO_2002_Part_J": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM_Solid_wall_SCO_2002_Part_J",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Plasterboard_wallboard",
+                "roughness": "MediumRough",
+                "thickness": 0.013,
+                "conductivity": 0.21,
+                "density": 900.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_PUR_50mm",
+                "roughness": "MediumRough",
+                "thickness": 0.05,
+                "conductivity": 0.026,
+                "density": 30.0,
+                "specific_heat": 1800.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Air_layer_25_mm_wall",
+                "roughness": "Smooth",
+                "thickness": 0.025,
+                "conductivity": 0.556,
+                "density": 1.28,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Concrete_1800_kgm3",
+                "roughness": "MediumRough",
+                "thickness": 0.14,
+                "conductivity": 1.13,
+                "density": 1800.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    },
+    "NCM_Cavity_wall_SCO_2002-2006": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM_Cavity_wall_SCO_2002-2006",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Render_External_20_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.02,
+                "conductivity": 0.57,
+                "density": 1300.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Brickwork_outer_leaf",
+                "roughness": "MediumRough",
+                "thickness": 0.105,
+                "conductivity": 0.77,
+                "density": 1700.0,
+                "specific_heat": 840.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Air_layer_50mm_wall",
+                "roughness": "Smooth",
+                "thickness": 0.05,
+                "conductivity": 0.556,
+                "density": 1.28,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Glass_wool_120_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.12,
+                "conductivity": 0.04,
+                "density": 12.0,
+                "specific_heat": 750.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Concrete_1800_kgm3",
+                "roughness": "MediumRough",
+                "thickness": 0.1,
+                "conductivity": 1.13,
+                "density": 1800.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Air_layer_25_mm_wall",
+                "roughness": "Smooth",
+                "thickness": 0.022,
+                "conductivity": 0.556,
+                "density": 1.28,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Plasterboard_wallboard",
+                "roughness": "MediumRough",
+                "thickness": 0.013,
+                "conductivity": 0.21,
+                "density": 900.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    },
+    "NCM_Weatherboard_tile-hung_SCO_2002_Part_J": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM_Weatherboard_tile-hung_SCO_2002_Part_J",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Concrete_roof_tiles",
+                "roughness": "MediumRough",
+                "thickness": 0.01,
+                "conductivity": 1.5,
+                "density": 2100.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Air_layer_25_mm_wall",
+                "roughness": "Smooth",
+                "thickness": 0.025,
+                "conductivity": 0.556,
+                "density": 1.28,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Glass_wool_120_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.12,
+                "conductivity": 0.04,
+                "density": 12.0,
+                "specific_heat": 750.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Plasterboard_wallboard",
+                "roughness": "MediumRough",
+                "thickness": 0.013,
+                "conductivity": 0.21,
+                "density": 900.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    },
+    "NCM_Precast_concrete_panels_SCO_2002-2006": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM_Precast_concrete_panels_SCO_2002-2006",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Plaster_dense",
+                "roughness": "MediumRough",
+                "thickness": 0.013,
+                "conductivity": 0.57,
+                "density": 1300.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Concrete_1800_kgm3",
+                "roughness": "MediumRough",
+                "thickness": 0.1,
+                "conductivity": 1.13,
+                "density": 1800.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_EPS_25_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.025,
+                "conductivity": 0.04,
+                "density": 15.0,
+                "specific_heat": 1300.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Concrete_1800_kgm3",
+                "roughness": "MediumRough",
+                "thickness": 0.1,
+                "conductivity": 1.13,
+                "density": 1800.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    },
+    "NCM_Curtain_wall_SCO_2002-2006": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM_Curtain_wall_SCO_2002-2006",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Concrete_2000_kgm3",
+                "roughness": "Smooth",
+                "thickness": 0.1,
+                "conductivity": 1.33,
+                "density": 2000.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_PUR_75_mm_3in",
+                "roughness": "Smooth",
+                "thickness": 0.1,
+                "conductivity": 0.026,
+                "density": 30.0,
+                "specific_heat": 1800.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Clay_soil_3250mm_equivalent_to_PA_ratio_of_0.25",
+                "roughness": "Smooth",
+                "thickness": 3.25,
+                "conductivity": 0.556,
+                "density": 1.28,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Stone_chippings_25_mm",
+                "roughness": "Smooth",
+                "thickness": 0.025,
+                "conductivity": 2.0,
+                "density": 2000.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Flooring_screed",
+                "roughness": "Smooth",
+                "thickness": 0.05,
+                "conductivity": 0.41,
+                "density": 1200.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    },
+    "NCM_Metal_cladding_wall_SCO_2002-2006": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM_Metal_cladding_wall_SCO_2002-2006",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Aluminium_sheet_20_mm",
+                "roughness": "Smooth",
+                "thickness": 0.02,
+                "conductivity": 160.0,
+                "density": 2800.0,
+                "specific_heat": 880.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Air_layer_25_mm_well_ventilated_wall",
+                "roughness": "Smooth",
+                "thickness": 0.025,
+                "conductivity": 0.556,
+                "density": 1.28,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_EPS_100_mm",
+                "roughness": "Smooth",
+                "thickness": 0.1,
+                "conductivity": 0.04,
+                "density": 15.0,
+                "specific_heat": 1300.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Lightweight_600_kgm_concrete_100_mm",
+                "roughness": "Smooth",
+                "thickness": 0.1,
+                "conductivity": 0.22,
+                "density": 600.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Plaster_lightweight_13_mm",
+                "roughness": "Smooth",
+                "thickness": 0.013,
+                "conductivity": 0.18,
+                "density": 600.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    },
+    "NCM__default_insulated_wall_U1": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM__default_insulated_wall_U1",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Concrete_2000_kgm3",
+                "roughness": "MediumRough",
+                "thickness": 0.1,
+                "conductivity": 1.33,
+                "density": 2000.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_PUR_75_mm_3in",
+                "roughness": "MediumRough",
+                "thickness": 0.1,
+                "conductivity": 0.026,
+                "density": 30.0,
+                "specific_heat": 1800.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Clay_soil_3250mm_equivalent_to_PA_ratio_of_0.25",
+                "roughness": "Smooth",
+                "thickness": 3.25,
+                "conductivity": 0.556,
+                "density": 1.28,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Stone_chippings_25_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.025,
+                "conductivity": 2.0,
+                "density": 2000.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Flooring_screed",
+                "roughness": "MediumRough",
+                "thickness": 0.05,
+                "conductivity": 0.41,
+                "density": 1200.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    },
+    "NCM_Pitched_roof_SCO_2002-2006": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM_Pitched_roof_SCO_2002-2006",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Asbestos_cement_5mm",
+                "roughness": "MediumRough",
+                "thickness": 0.005,
+                "conductivity": 0.36,
+                "density": 700.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Air_layer_50_mm_roof",
+                "roughness": "Smooth",
+                "thickness": 0.05,
+                "conductivity": 0.556,
+                "density": 1.28,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Min_wool_quilt_160_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.16,
+                "conductivity": 0.04,
+                "density": 12.0,
+                "specific_heat": 1030.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Plasterboard_ceiling",
+                "roughness": "MediumRough",
+                "thickness": 0.0095,
+                "conductivity": 0.21,
+                "density": 900.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    },
+    "NCM_Pitched_roof_insul_at_rafters_SCO_2002-2006": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM_Pitched_roof_insul_at_rafters_SCO_2002-2006",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Concrete_roof_tiles",
+                "roughness": "MediumRough",
+                "thickness": 0.01,
+                "conductivity": 1.5,
+                "density": 2100.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Cold_loft_space",
+                "roughness": "Smooth",
+                "thickness": 0.2,
+                "conductivity": 0.556,
+                "density": 1.28,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Min_wool_quilt_250_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.25,
+                "conductivity": 0.04,
+                "density": 12.0,
+                "specific_heat": 1030.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Plasterboard_ceiling",
+                "roughness": "MediumRough",
+                "thickness": 0.0095,
+                "conductivity": 0.21,
+                "density": 900.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    },
+    "NCM_Flat_roof_SCO_2002-2006": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM_Flat_roof_SCO_2002-2006",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Stone_chippings_25_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.025,
+                "conductivity": 2.0,
+                "density": 2000.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Asphalt_19_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.019,
+                "conductivity": 0.7,
+                "density": 2100.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Mineral_wool_dense_150_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.15,
+                "conductivity": 0.036,
+                "density": 50.0,
+                "specific_heat": 1030.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Concrete_rooffloor_slab",
+                "roughness": "MediumRough",
+                "thickness": 0.15,
+                "conductivity": 1.35,
+                "density": 2000.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Concrete_dense_150_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.15,
+                "conductivity": 1.93,
+                "density": 2400.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    },
+    "NCM_Solid_ground_floor_SCO_2002-2006": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM_Solid_ground_floor_SCO_2002-2006",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Clay_underfloor_750_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.75,
+                "conductivity": 1.5,
+                "density": 1500.0,
+                "specific_heat": 2085.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Brick_slips_25_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.025,
+                "conductivity": 0.77,
+                "density": 1700.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Cast_concrete_100_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.1,
+                "conductivity": 1.35,
+                "density": 2000.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_EPS_80mm",
+                "roughness": "MediumRough",
+                "thickness": 0.08,
+                "conductivity": 0.04,
+                "density": 15.0,
+                "specific_heat": 1300.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Flooring_screed",
+                "roughness": "MediumRough",
+                "thickness": 0.05,
+                "conductivity": 0.41,
+                "density": 1200.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    },
+    "NCM_Suspended_ground_floor_SCO_2002-2006": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM_Suspended_ground_floor_SCO_2002-2006",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Clay_underfloor_750_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.75,
+                "conductivity": 1.5,
+                "density": 1500.0,
+                "specific_heat": 2085.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Brick_slips_25_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.025,
+                "conductivity": 0.77,
+                "density": 1700.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Cast_concrete_100_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.1,
+                "conductivity": 1.35,
+                "density": 2000.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Air_layer_35mm_floor",
+                "roughness": "Smooth",
+                "thickness": 0.035,
+                "conductivity": 0.556,
+                "density": 1.28,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Min_wool_quilt_100_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.1,
+                "conductivity": 0.04,
+                "density": 12.0,
+                "specific_heat": 1030.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Plywood_30_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.03,
+                "conductivity": 0.13,
+                "density": 500.0,
+                "specific_heat": 1500.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    },
+    "NCM__default_separating_floor_": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM__default_separating_floor_",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Concrete_2000_kgm3",
+                "roughness": "MediumRough",
+                "thickness": 0.1,
+                "conductivity": 1.33,
+                "density": 2000.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_PUR_75_mm_3in",
+                "roughness": "MediumRough",
+                "thickness": 0.1,
+                "conductivity": 0.026,
+                "density": 30.0,
+                "specific_heat": 1800.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Clay_soil_3250mm_equivalent_to_PA_ratio_of_0.25",
+                "roughness": "Smooth",
+                "thickness": 3.25,
+                "conductivity": 0.556,
+                "density": 1.28,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Stone_chippings_25_mm",
+                "roughness": "MediumRough",
+                "thickness": 0.025,
+                "conductivity": 2.0,
+                "density": 2000.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Flooring_screed",
+                "roughness": "MediumRough",
+                "thickness": 0.05,
+                "conductivity": 0.41,
+                "density": 1200.0,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    },
+    "NCM_Vehicle_access_door_SCO_2002_Part_J": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM_Vehicle_access_door_SCO_2002_Part_J",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Aluminium_sheet_1.5mm",
+                "roughness": "MediumRough",
+                "thickness": 0.002,
+                "conductivity": 160.0,
+                "density": 2800.0,
+                "specific_heat": 880.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Polyester_fibre",
+                "roughness": "Smooth",
+                "thickness": 0.02,
+                "conductivity": 0.556,
+                "density": 1.28,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Aluminium_sheet_1.5mm",
+                "roughness": "MediumRough",
+                "thickness": 0.002,
+                "conductivity": 160.0,
+                "density": 2800.0,
+                "specific_heat": 880.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    },
+    "NCM_Personnel_door_EW_200206_Part_L": {
+        "type": "OpaqueConstruction",
+        "identifier": "NCM_Personnel_door_EW_200206_Part_L",
+        "materials": [
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Plywood_deck",
+                "roughness": "MediumSmooth",
+                "thickness": 0.009,
+                "conductivity": 0.13,
+                "density": 500.0,
+                "specific_heat": 1500.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Extruded_polystyrene_25_mm",
+                "roughness": "Smooth",
+                "thickness": 0.025,
+                "conductivity": 0.556,
+                "density": 1.28,
+                "specific_heat": 1000.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            },
+            {
+                "type": "EnergyMaterial",
+                "identifier": "NCM_Plywood_deck",
+                "roughness": "MediumSmooth",
+                "thickness": 0.009,
+                "conductivity": 0.13,
+                "density": 500.0,
+                "specific_heat": 1500.0,
+                "thermal_absorptance": 0.9,
+                "solar_absorptance": 0.7,
+                "visible_absorptance": 0.7
+            }
+        ]
+    }
+}

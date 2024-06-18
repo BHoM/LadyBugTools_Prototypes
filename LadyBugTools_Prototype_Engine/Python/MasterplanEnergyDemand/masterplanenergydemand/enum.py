@@ -1,8 +1,10 @@
 """..."""
 
 # pylint: disable=too-few-public-methods, import-error
+import logging
 from enum import Enum, auto
 
+logger = logging.getLogger(__name__.split(".", maxsplit=1)[0])
 
 class BuildingType(Enum):
     """The type of building to simulate."""
@@ -73,6 +75,22 @@ class TerrainType(Enum):
     CITY = "City"
 
 
+class EconomizerType(Enum):
+    """A type of air-side economizer for the building HVAC system."""
+
+    NO_ECONOMIZER = "NoEconomizer"
+    DIFFERENTIAL_DRY_BULB = "DifferentialDryBulb"
+    DIFFERENTIAL_ENTHALPY = "DifferentialEnthalpy"
+
+
+class BuildingForm(Enum):
+    """The form of the building to simulate."""
+
+    CUBOID = auto()
+    L_SHAPED = auto()
+    U_SHAPED = auto()
+
+
 def typical_context_distance(terrain_type: TerrainType) -> float:
     """Get the distance to contextual geometry surrounding the building.
 
@@ -101,22 +119,6 @@ def typical_context_distance(terrain_type: TerrainType) -> float:
                 f"No default context height is available for {terrain_type}."
             )
     return context_distance
-
-
-class EconomizerType(Enum):
-    """A type of air-side economizer for the building HVAC system."""
-
-    NO_ECONOMIZER = "NoEconomizer"
-    DIFFERENTIAL_DRY_BULB = "DifferentialDryBulb"
-    DIFFERENTIAL_ENTHALPY = "DifferentialEnthalpy"
-
-
-class BuildingForm(Enum):
-    """The form of the building to simulate."""
-
-    CUBOID = auto()
-    L_SHAPED = auto()
-    U_SHAPED = auto()
 
 
 def typical_gfa(building_type: BuildingType) -> float:
@@ -557,3 +559,4 @@ def typical_glazing_ratio(building_type: BuildingType) -> float:
                 f"No default glazing ratio is available for {building_type}."
             )
     return glazing_ratio
+
