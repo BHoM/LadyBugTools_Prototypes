@@ -1,17 +1,16 @@
 """Unit test package for masterplanenergydemand."""
 
 # pylint: disable=E0401
-from masterplanenergydemand.enums import (BuildingType, ConstructionSet,
-                                          ConstructionType, ProgramType,
-                                          TerrainType, Vintage,
-                                          default_construction_type,
-                                          default_constructionset,
-                                          default_context_shade_distance,
-                                          default_floor_height,
-                                          default_footprint_area, default_gfa,
-                                          default_glazing_ratio,
-                                          default_number_of_floors,
-                                          default_program)
+from masterplanenergydemand.enums import (
+    BuildingType, ConstructionSet, ConstructionType, EconomizerType,
+    ProgramType, TerrainType, Vintage, default_construction_type,
+    default_constructionset, default_context_shade_distance,
+    default_cooling_eer, default_daylight_dimming,
+    default_demand_controlled_ventilation, default_economizer_type,
+    default_fan_power, default_floor_height, default_footprint_area,
+    default_gfa, default_glazing_ratio, default_heating_cop,
+    default_hr_effectiveness, default_number_of_floors, default_program,
+    default_pump_power)
 
 from . import EPW_OBJ
 
@@ -76,3 +75,15 @@ def test_default_constructionset():
                 ),
                 ConstructionSet,
             )
+
+def test_default_system():
+    """_"""
+    for building_type in BuildingType:
+        for vintage in Vintage:
+            assert isinstance(sum(default_hr_effectiveness(building_type=building_type, epw=EPW_OBJ)), float)
+            assert default_demand_controlled_ventilation(building_type=building_type, vintage=vintage) in [True, False]
+            assert default_daylight_dimming(building_type=building_type, vintage=vintage) in [True, False]
+            assert isinstance(default_heating_cop(building_type=building_type, epw=EPW_OBJ, vintage=vintage), float)
+            assert isinstance(default_cooling_eer(building_type=building_type, epw=EPW_OBJ, vintage=vintage), float)
+            assert isinstance(default_fan_power(building_type=building_type, vintage=vintage), float)
+            assert isinstance(default_pump_power(building_type=building_type, vintage=vintage), float)

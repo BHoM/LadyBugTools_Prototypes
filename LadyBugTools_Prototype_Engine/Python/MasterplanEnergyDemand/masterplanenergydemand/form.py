@@ -1,8 +1,7 @@
 # region: IMPORTS
 # pylint: disable=E0401
 
-import inspect
-from typing import Any
+from copy import deepcopy
 
 import numpy as np
 from honeybee.boundarycondition import Outdoors
@@ -10,55 +9,77 @@ from honeybee.model import Aperture, Face, Model, Room, Shade
 from ladybug_geometry.geometry2d import Point2D, Polygon2D, Vector2D
 from ladybug_geometry.geometry3d import (Face3D, LineSegment3D, Point3D,
                                          Vector3D)
+from pydantic import BaseModel, Field
 
 from .config import logger
 from .enums import (BuildingType, TerrainType, default_context_shade_distance,
                     default_floor_height, default_footprint_area,
-                    default_glazing_ratio, default_number_of_floors)
-from .util import (_log_message, face_orientation, list_of_nums_validator,
-                   number_validator)
+                    default_glazing_ratio, default_number_of_floors,
+                    default_skylight_ratio)
+from .util import face_orientation
 
 # pylint: enable=E0401
 # endregion: IMPORTS
 
 
-
-
-class Form:
+class Form(BaseModel):
     """The massing/shape of a built form."""
 
-    def __init__(
-        self,
-        average_footprint_area: float = None,
-        average_num_floors: int = None,
-        average_floor_height: float = None,
-        rotation: float = None,
-        terrain: TerrainType = None,
-        glazing_ratio: list[float] = None,
-        skylight_ratio: float = None,
-    ):
-        self.average_footprint_area = average_footprint_area
-        self.average_num_floors = average_num_floors
-        self.average_floor_height = average_floor_height
-        self.rotation = rotation
-        self.terrain = terrain
-        self.glazing_ratio = glazing_ratio
-        self.skylight_ratio = skylight_ratio
+    average_footprint_area: float = Field(
+        description="The average footprint area of the building (m2).", gt=0
+    )
+    average_num_floors: int = Field(
+        description="The average number of floors in the building.", gt=0
+    )
+    average_floor_height: float = Field(
+        description="The average floor height of the building (m).", gt=0
+    )
+    rotation: float = Field(
+        description="The rotation of the building (degrees).", ge=0, lt=360
+    )
+    terrain: TerrainType = Field(
+        description="The terrain type for the building."
+    )
+    glazing_ratio: list[float] = Field(
+        description="The ratio of glazing area to floor area for each orientation.",
+        ge=0,
+        le=0.95,
+        max_items=8,
+        min_items=8,
+    )
+    skylight_ratio: float = Field(
+        description="The ratio of skylight area to floor area.",
+        ge=0,
+        le=0.95,
+    )
 
-    def __eq__(self, other: "Form") -> bool:
-        return self.to_dict() == other.to_dict()
-
-    def to_dict(self) -> dict:
-        """Convert this object to a dictionary."""
-        return {k[1:]: v for k, v in self.__dict__.items()}
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({hex(id(self))})"
 
     @classmethod
-    def from_defaults(
+    def random(cls, seed: int = None) -> "Form":
+        """Return an example instance of the class populated with random data."""
+        
+        logger.info(f"Generating random {cls.__name__} object")
+
+        np.random.seed(seed)
+        
+        return cls(
+            average_footprint_area=np.random.uniform(0.1, 1000),
+            average_num_floors=np.random.uniform(1, 10),
+            average_floor_height=np.random.uniform(0.5, 5),
+            rotation=np.random.uniform(0, 360),
+            terrain=np.random.choice(list(TerrainType)),
+            glazing_ratio=np.random.uniform(0, 0.95, 8).tolist(),
+            skylight_ratio=np.random.uniform(0, 0.95),
+        )
+
+    @classmethod
+    def from_building_type(
         cls,
         building_type: BuildingType,
-        rotation: float = None,
-        terrain: TerrainType = None,
-        skylight_ratio: float = None,
+        rotation: float,
+        terrain: TerrainType,
     ) -> "Form":
         """Create a Form object from default values for a given BuildingType.
 
@@ -66,179 +87,77 @@ class Form:
             building_type: The type of building to create defaults for.
             rotation: The rotation of the building in degrees.
             terrain: The terrain type for the building.
-            skylight_ratio: The ratio of skylight area to floor area.
 
         Returns:
             Form: A Form object with default values for the given BuildingType.
         """
-        average_footprint_area = default_footprint_area(building_type)
-        logger.info(
-            '> using "average_footprint_area" of %sm2 for %s',
-            average_footprint_area,
-            building_type,
-        )
 
-        average_num_floors = default_number_of_floors(building_type)
-        logger.info(
-            '> using "average_num_floors" of %s for %s',
-            average_num_floors,
-            building_type,
-        )
-
-        average_floor_height = default_floor_height(building_type)
-        logger.info(
-            '> using "average_floor_height" of %sm for %s',
-            average_floor_height,
-            building_type,
-        )
-
-        glazing_ratio = default_glazing_ratio(building_type)
-        logger.info(
-            '> using "glazing_ratio" of %s for %s', glazing_ratio, building_type
-        )
-
+        logger.info(f"Creating default {cls.__name__} for {building_type}")
+        
         return cls(
-            average_footprint_area=average_footprint_area,
-            average_num_floors=average_num_floors,
-            average_floor_height=average_floor_height,
+            average_footprint_area=default_footprint_area(building_type),
+            average_num_floors=default_number_of_floors(building_type),
+            average_floor_height=default_floor_height(building_type),
             rotation=rotation,
             terrain=terrain,
-            glazing_ratio=[glazing_ratio] * 8,
-            skylight_ratio=skylight_ratio,
+            glazing_ratio=[default_glazing_ratio(building_type)] * 8,
+            skylight_ratio=default_skylight_ratio(building_type),
         )
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Form":
-        """Create a Form object from a dictionary."""
+    def parse_obj_extended(cls, d: dict) -> "Form":
+        """Create a Form object from an extended dictionary, where directional glazing_ratio is present."""
 
-        # convert strings back into Enums if necessary
-        if "terrain" in data:
-            data["terrain"] = TerrainType(data["terrain"])
+        # copy to prevent mutation
+        d = deepcopy(d)
 
-        return cls(**data)
+        # process
+        lookup = {
+            "glazing_ratio": [
+                "glazing_ratio_N",
+                "glazing_ratio_NE",
+                "glazing_ratio_E",
+                "glazing_ratio_SE",
+                "glazing_ratio_S",
+                "glazing_ratio_SW",
+                "glazing_ratio_W",
+                "glazing_ratio_NW",
+            ]
+        }
 
-    # region: VALIDATION
-    @property
-    def average_footprint_area(self):
-        """Getter for the average_footprint_area property."""
-        return self._average_footprint_area
+        for target_var, additional_keys in lookup.items():
+            # check that the target variable is not present
+            if target_var in d:
+                raise ValueError(
+                    f"Extended dictionary must not contain key: {target_var}"
+                )
 
-    @average_footprint_area.setter
-    def average_footprint_area(self, value):
-        """Setter for the average_footprint_area property."""
-        prop_name = inspect.currentframe().f_code.co_name
-        if value is None:
-            value = 100
-            _log_message(prop_name, value, "m2")
-        number_validator(value, prop_name, gt=0)
-        self._average_footprint_area = value
+            # check if all additional keys are present
+            for k in additional_keys:
+                if k not in d:
+                    raise ValueError(f"Extended dictionary must contain key: {k}")
 
-    @property
-    def average_num_floors(self):
-        """Getter for the average_num_floors property."""
-        return self._average_num_floors
+            # create the list list
+            target_var_values = [d[key] for key in additional_keys]
 
-    @average_num_floors.setter
-    def average_num_floors(self, value):
-        """Setter for the average_num_floors property."""
-        prop_name = inspect.currentframe().f_code.co_name
-        if value is None:
-            value = 1
-            _log_message(prop_name, value)
-        if not isinstance(value, int):
-            raise ValueError(f"{self} - {prop_name} must be an integer")
-        number_validator(value, prop_name, gt=0)
-        self._average_num_floors = value
+            # modify input dict to remove additional keys and add target_var
+            for key in additional_keys:
+                d.pop(key)
+            d[target_var] = target_var_values
 
-    @property
-    def average_floor_height(self):
-        """Getter for the average_floor_height property."""
-        return self._average_floor_height
-
-    @average_floor_height.setter
-    def average_floor_height(self, value):
-        """Setter for the average_floor_height property."""
-        prop_name = inspect.currentframe().f_code.co_name
-        if value is None:
-            value = 3.5
-            _log_message(prop_name, value, "m")
-        number_validator(value, prop_name, gt=0)
-        self._average_floor_height = value
-
-    @property
-    def rotation(self):
-        """Getter for the rotation property."""
-        return self._rotation
-
-    @rotation.setter
-    def rotation(self, value):
-        """Setter for the rotation property."""
-        prop_name = inspect.currentframe().f_code.co_name
-        if value is None:
-            value = 0
-            _log_message(prop_name, value, "°")
-        number_validator(value, prop_name, ge=0, lt=360)
-        self._rotation = value
-
-    @property
-    def terrain(self):
-        """Getter for the terrain property."""
-        return self._terrain
-
-    @terrain.setter
-    def terrain(self, value):
-        """Setter for the terrain property."""
-        prop_name = inspect.currentframe().f_code.co_name
-        if value is None:
-            value = TerrainType.URBAN
-            _log_message(prop_name, value)
-        else:
-            try:
-                value = TerrainType(value)
-            except ValueError:
-                value = TerrainType[value]
-        self._terrain = value
-
-    @property
-    def glazing_ratio(self):
-        """Getter for the glazing_ratio property."""
-        return self._glazing_ratio
-
-    @glazing_ratio.setter
-    def glazing_ratio(self, value):
-        """Setter for the glazing_ratio property."""
-        prop_name = inspect.currentframe().f_code.co_name
-        if value is None:
-            value = [0.25] * 8
-            _log_message(prop_name, value)
-        list_of_nums_validator(value, prop_name, 8, ge=0, le=0.95)
-        self._glazing_ratio = value
-
-    @property
-    def skylight_ratio(self):
-        """Getter for the skylight_ratio property."""
-        return self._skylight_ratio
-
-    @skylight_ratio.setter
-    def skylight_ratio(self, value):
-        """Setter for the skylight_ratio property."""
-        prop_name = inspect.currentframe().f_code.co_name
-        if value is None:
-            value = 0
-            _log_message(prop_name, value)
-        number_validator(value, prop_name, ge=0, le=0.95)
-        self._skylight_ratio = value
-
-    # endregion: VALIDATION
+        return cls.parse_obj(d)
 
     # region: CALCULATED PROPERTIES
-    @property
     def building_height(self) -> float:
         """Get the typical height for an individual building."""
+        logger.info(f"{self} - Calculating building height")
+
         return self.average_num_floors * self.average_floor_height
 
     def footprint(self) -> Polygon2D:
         """Create the footprint for the building."""
+
+        logger.info(f"{self} - Creating footprint")
 
         footprint = Polygon2D.from_rectangle(
             base=1,
@@ -273,6 +192,8 @@ class Form:
     ) -> Model:
         """Create the base model containing all geometry, without construction assignment."""
 
+        logger.info(f"{self} - Creating base model")
+
         # create the lookup dict for apertures in each orientation
         gr_lookup = dict(
             zip(*[["N", "NE", "E", "SE", "S", "SW", "W", "NW"], self.glazing_ratio])
@@ -301,7 +222,7 @@ class Form:
         context_distance = default_context_shade_distance(self.terrain)
         shades = []
         if context_distance < 500:
-            context_height = self.building_height * 0.75
+            context_height = self.building_height() * 0.75
             for segment in self.footprint().offset(-context_distance).segments:
                 _shd = Shade(
                     identifier="context_shade",

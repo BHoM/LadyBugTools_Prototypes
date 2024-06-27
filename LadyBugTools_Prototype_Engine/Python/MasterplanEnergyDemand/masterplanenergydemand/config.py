@@ -13,6 +13,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from ladybug.analysisperiod import AnalysisPeriod
 
 # pylint: enable=E0401
 
@@ -24,6 +25,13 @@ os.environ["HOME"] = (Path("C:/Users/") / getpass.getuser()).as_posix()
 fileConfig(DATA_PATH / "logging_config.ini")
 logger = logging.getLogger(__name__.split(".", maxsplit=1)[0])
 logger.setLevel(logging.DEBUG)  # set to DEBUG or INFO for debugging, and WARNING for production
+
+# CONSTANTS
+INDEX = pd.to_datetime(AnalysisPeriod().datetimes)
+
+# DATASETS
+SRI_DATA = pd.read_csv(DATA_PATH / "sri_data.csv", header=0)
+DEFAULT_SYSTEMS = pd.read_excel(DATA_PATH / "default_systems.xlsx", engine='openpyxl')
 
 # PLOT STYLING
 plt.style.use(DATA_PATH / "bhom.mplstyle")

@@ -13,7 +13,7 @@ from honeybee_energy.lib.programtypes import (
     program_type_by_identifier)
 from ladybug.epw import EPW
 
-from .config import logger
+from .config import DEFAULT_SYSTEMS, logger
 
 # pylint: enable=E0401
 # endregion: IMPORTS
@@ -538,6 +538,90 @@ def default_glazing_ratio(building_type: BuildingType) -> float:
     return float(glazing_ratio)
 
 
+def default_skylight_ratio(building_type: BuildingType) -> float:
+    """Get the typical skilight ratio for the building type.
+
+    Args:
+        building_type (BuildingType):
+            The type of building to calculate for.
+
+    Returns:
+        float:
+            The typical skylight ratio for the building type.
+    """
+
+    match building_type:
+        case BuildingType.ACCOMODATION_APARTMENT_HIGHRISE:
+            skylight_ratio = 0
+        case BuildingType.ACCOMODATION_APARTMENT_MIDRISE:
+            skylight_ratio = 0
+        case BuildingType.EDUCATION_COLLEGE:
+            skylight_ratio = 0
+        case BuildingType.CIVIC_COURTHOUSE:
+            skylight_ratio = 0
+        case BuildingType.DATACENTER_LARGE_HIGH_ITE:
+            skylight_ratio = 0
+        case BuildingType.DATACENTER_LARGE_LOW_ITE:
+            skylight_ratio = 0
+        case BuildingType.DATACENTER_SMALL_HIGH_ITE:
+            skylight_ratio = 0
+        case BuildingType.DATACENTER_SMALL_LOW_ITE:
+            skylight_ratio = 0
+        case BuildingType.HEALTHCARE_HOSPITAL:
+            skylight_ratio = 0
+        case BuildingType.ACCOMODATION_HOTEL_LARGE:
+            skylight_ratio = 0
+        case BuildingType.ACCOMODATION_HOTEL_SMALL:
+            skylight_ratio = 0
+        case BuildingType.LABORATORY:
+            skylight_ratio = 0
+        case BuildingType.COMMERCIAL_OFFICE_LARGE:
+            skylight_ratio = 0
+        case BuildingType.COMMERCIAL_OFFICE_MEDIUM:
+            skylight_ratio = 0
+        case BuildingType.COMMERCIAL_OFFICE_SMALL:
+            skylight_ratio = 0
+        case BuildingType.HEALTHCARE_OUTPATIENT:
+            skylight_ratio = 0
+        case BuildingType.COMMERCIAL_RESTAURANT_FULL_SERVICE:
+            skylight_ratio = 0
+        case BuildingType.COMMERCIAL_RESTAURANT_QUICK_SERVICE:
+            skylight_ratio = 0
+        case BuildingType.COMMERCIAL_RETAIL:
+            skylight_ratio = 0
+        case BuildingType.EDUCATION_SCHOOL_PRIMARY:
+            skylight_ratio = 0
+        case BuildingType.EDUCATION_SCHOOL_SECONDARY:
+            skylight_ratio = 0
+        case BuildingType.COMMERCIAL_STRIP_MALL:
+            skylight_ratio = 0
+        case BuildingType.COMMERCIAL_SUPERMARKET:
+            skylight_ratio = 0
+        case BuildingType.INDUSTRY_WAREHOUSE:
+            skylight_ratio = 0
+        case BuildingType.ACCOMODATION_HOUSE_LOWRISE:
+            skylight_ratio = 0
+        case BuildingType.CIVIC_CONCERT_HALL:
+            skylight_ratio = 0
+        case BuildingType.PHYSICAL_EXERCISE:
+            skylight_ratio = 0
+        case BuildingType.PHYSICAL_EVENTS:
+            skylight_ratio = 0
+        case BuildingType.RELIGIOUS:
+            skylight_ratio = 0
+        case BuildingType.INDUSTRY_LIGHT:
+            skylight_ratio = 0
+        case BuildingType.PARKING:
+            skylight_ratio = 0
+        case BuildingType.CIVIC_LIBRARY:
+            skylight_ratio = 0
+        case _:
+            raise ValueError(
+                f"No default skylight ratio is available for {building_type}."
+            )
+    return float(skylight_ratio)
+
+
 def default_context_shade_distance(terrain_type: TerrainType) -> float:
     """Get the distance to contextual geometry surrounding the building.
 
@@ -749,9 +833,108 @@ def default_program(building_type: BuildingType) -> ProgramType:
 
 
 def default_constructionset(
-    vintage: Vintage, construction_type: ConstructionType, epw: EPW
+    construction_type: ConstructionType, epw: EPW, vintage: Vintage
 ) -> ConstructionSet:
     """Return the default construction set for the building type, age and climate."""
     id_string = f"{vintage.value}::ClimateZone{int(epw.ashrae_climate_zone[0])}::{construction_type.value}"
     cset = construction_set_by_identifier(construction_set_identifier=id_string)
     return cset
+
+
+def default_economizer_type(
+    building_type: BuildingType, epw: EPW, vintage: Vintage = Vintage.ASHRAE_901_2019
+) -> EconomizerType:
+    """Get the typical EconomizerType for the building type and vintage."""
+    ashrae_climate = int(epw.ashrae_climate_zone[0])
+    return EconomizerType[
+        DEFAULT_SYSTEMS[
+            (DEFAULT_SYSTEMS.building_type == building_type.name)
+            & (DEFAULT_SYSTEMS.vintage == vintage.name)
+            & (DEFAULT_SYSTEMS.ashrae_climate == ashrae_climate)
+        ].squeeze()["economizer_type"]
+    ]
+
+
+def default_hr_effectiveness(
+    building_type: BuildingType, epw: EPW, vintage: Vintage = Vintage.ASHRAE_901_2019
+) -> tuple[float]:
+    """Get the typical sensible and latent heat recovery effectiveness for the building type, vintage and climate."""
+    ashrae_climate = int(epw.ashrae_climate_zone[0])
+    # filter the dataframe to get the row that matches the building type, vintage and climate
+    s = DEFAULT_SYSTEMS[
+        (DEFAULT_SYSTEMS.building_type == building_type.name)
+        & (DEFAULT_SYSTEMS.vintage == vintage.name)
+        & (DEFAULT_SYSTEMS.ashrae_climate == ashrae_climate)
+    ].squeeze()
+    return (
+        s["sensible_heat_recovery_effectiveness"],
+        s["latent_heat_recovery_effectiveness"],
+    )
+
+
+def default_demand_controlled_ventilation(
+    building_type: BuildingType, vintage: Vintage
+) -> bool:
+    """Get the typical demand controlled ventilation for the building type and vintage."""
+
+    return DEFAULT_SYSTEMS[
+        (DEFAULT_SYSTEMS.building_type == building_type.name)
+        & (DEFAULT_SYSTEMS.vintage == vintage.name)
+    ].squeeze()["demand_controlled_ventilation"].values[0]
+
+
+def default_daylight_dimming(building_type: BuildingType, vintage: Vintage) -> bool:
+    """Get the typical daylight dimming for the building type and vintage."""
+
+    return DEFAULT_SYSTEMS[
+        (DEFAULT_SYSTEMS.building_type == building_type.name)
+        & (DEFAULT_SYSTEMS.vintage == vintage.name)
+    ].squeeze()["daylight_dimming"].values[0]
+
+
+def default_heating_cop(
+    building_type: BuildingType, epw: EPW, vintage: Vintage
+) -> float:
+    """Get the typical heating COP for the building type, vintage and climate."""
+
+    ashrae_climate = int(epw.ashrae_climate_zone[0])
+    # filter the dataframe to get the row that matches the building type, vintage and climate
+    s = DEFAULT_SYSTEMS[
+        (DEFAULT_SYSTEMS.building_type == building_type.name)
+        & (DEFAULT_SYSTEMS.vintage == vintage.name)
+        & (DEFAULT_SYSTEMS.ashrae_climate == ashrae_climate)
+    ].squeeze()
+    return s["heating_cop"]
+
+
+def default_cooling_eer(
+    building_type: BuildingType, epw: EPW, vintage: Vintage
+) -> float:
+    """Get the typical cooling EER for the building type, vintage and climate."""
+
+    ashrae_climate = int(epw.ashrae_climate_zone[0])
+    # filter the dataframe to get the row that matches the building type, vintage and climate
+    s = DEFAULT_SYSTEMS[
+        (DEFAULT_SYSTEMS.building_type == building_type.name)
+        & (DEFAULT_SYSTEMS.vintage == vintage.name)
+        & (DEFAULT_SYSTEMS.ashrae_climate == ashrae_climate)
+    ].squeeze()
+    return s["cooling_eer"]
+
+
+def default_fan_power(building_type: BuildingType, vintage: Vintage) -> float:
+    """Get the typical fan power for the building type and vintage."""
+
+    return DEFAULT_SYSTEMS[
+        (DEFAULT_SYSTEMS.building_type == building_type.name)
+        & (DEFAULT_SYSTEMS.vintage == vintage.name)
+    ].squeeze()["fan_power"].values[0]
+
+
+def default_pump_power(building_type: BuildingType, vintage: Vintage) -> float:
+    """Get the typical pump power for the building type and vintage."""
+
+    return DEFAULT_SYSTEMS[
+        (DEFAULT_SYSTEMS.building_type == building_type.name)
+        & (DEFAULT_SYSTEMS.vintage == vintage.name)
+    ].squeeze()["pump_power"].values[0]
