@@ -1,1 +1,4 @@
-# TODO - add contextual info to logging at object level to make it easier to debug which object is doing what
+# TODO - DataCenter far too much electric equipment demand ( compared with other typologies )
+# TODO - Fan energy far too high for all typologies
+
+# TODO - Charting methods

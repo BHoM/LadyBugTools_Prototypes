@@ -9,10 +9,10 @@ import pandas as pd
 import pytest
 
 from masterplanenergydemand.enums import TerrainType
-from masterplanenergydemand.mped import Masterplan
-from masterplanenergydemand.typology import (BuildingType, Fabric, Form, Model,
-                                             Program, ProgramType, System,
-                                             Typology, Vintage)
+from masterplanenergydemand.mped_OLD import Masterplan
+from masterplanenergydemand.typology_OLD import (BuildingType, Fabric, Form,
+                                                 Model, Program, ProgramType,
+                                                 System, Typology, Vintage)
 
 from . import (EPW_OBJ, EPW_PATH, EXCEL_PATH, MPED_ID, SIMULATION_DIRECTORY,
                TYPOLOGY_ID)
@@ -40,7 +40,7 @@ def test_from_excel():
 def test_results():
     """_"""
     mped = Masterplan.from_excel(EXCEL_PATH, MPED_ID)
-    assert isinstance(mped.results(), pd.DataFrame)
+    assert isinstance(mped.simulate(), pd.DataFrame)
 
 def test_sensitivity():
     """_"""
@@ -59,7 +59,7 @@ def test_sensitivity():
     # 2 * area in typology 2
     mped.typologies[2].total_area = mped.typologies[0].total_area * 2
 
-    df = mped.results()
+    df = mped.simulate()
     
     p_0, p_1, _ = df.iloc[:, df.columns.get_level_values(1) == "People (kWh)"].mean().values
     assert p_0 * 2 == pytest.approx(p_1, 10)

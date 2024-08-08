@@ -9,7 +9,7 @@ from masterplanenergydemand.enums import (
     default_demand_controlled_ventilation, default_economizer_type,
     default_fan_power, default_floor_height, default_footprint_area,
     default_gfa, default_glazing_ratio, default_heating_cop,
-    default_hr_effectiveness, default_number_of_floors, default_program,
+    default_hr_effectiveness, default_number_of_floors, default_program_type,
     default_pump_power)
 
 from . import EPW_OBJ
@@ -62,7 +62,7 @@ def test_default_number_of_floors():
 def test_default_program():
     """_"""
     for building_type in BuildingType:
-        assert isinstance(default_program(building_type), ProgramType)
+        assert isinstance(default_program_type(building_type), ProgramType)
 
 
 def test_default_constructionset():

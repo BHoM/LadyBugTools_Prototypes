@@ -7,9 +7,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from masterplanenergydemand.typology import (BuildingType, Fabric, Form, Model,
-                                             Program, ProgramType, System,
-                                             TerrainType, Typology, Vintage)
+from masterplanenergydemand.typology_OLD import (BuildingType, Fabric, Form,
+                                                 Model, Program, ProgramType,
+                                                 System, TerrainType, Typology,
+                                                 Vintage)
 
 from . import EPW_OBJ, EPW_PATH, EXCEL_PATH, SIMULATION_DIRECTORY, TYPOLOGY_ID
 

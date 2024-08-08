@@ -18,7 +18,7 @@ def test_init():
         lighting_power_density=13,
         equipment_power_density=11,
         infiltration_rate=0.0023,
-        ventilation_rate=0.234,
+        ventilation_rate_flowperperson=0.234,
         heating_setpoint=30,
         heating_setback=20,
         cooling_setpoint=35,
@@ -33,7 +33,7 @@ def test_init():
     assert prog.lighting_power_density == 13
     assert prog.equipment_power_density == 11
     assert prog.infiltration_rate == 0.0023
-    assert prog.ventilation_rate == 0.234
+    assert prog.ventilation_rate_flowperperson == 0.234
     assert prog.heating_setpoint == 30
     assert prog.heating_setback == 20
     assert prog.cooling_setpoint == 35

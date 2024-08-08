@@ -2,25 +2,114 @@
 # pylint: disable=E0401
 
 
+import calendar
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+from honeybee.model import Model, Room
 from honeybee_energy.construction.opaque import OpaqueConstruction
+from honeybee_energy.hvac.idealair import IdealAirSystem
 from honeybee_energy.material.opaque import EnergyMaterial
-from ladybug.datacollection import BaseCollection
-from ladybug.wea import Wea
+from honeybee_energy.result.eui import eui_from_sql
+from honeybee_energy.result.loadbalance import LoadBalance
+from ladybug.analysisperiod import AnalysisPeriod
+from ladybug.datacollection import (DailyCollection,
+                                    HourlyContinuousCollection,
+                                    MonthlyCollection)
+from ladybug.sql import SQLiteResult
 from ladybug_geometry.geometry2d import Vector2D
 from ladybug_geometry.geometry3d import Face3D, Vector3D
 from matplotlib.colors import colorConverter
-from pydantic import BaseModel
 from sklearn.linear_model import LinearRegression
 
-from .config import DATA_PATH, SRI_DATA, logger
+from .config import INDEX, SRI_DATA, colour_defaults, logger
 
 # pylint: enable=E0401
 # endregion: IMPORTS
+
+
+def get_color(variable: str) -> str:
+    """Return the color hex-code for a given variable. This assumes that the vairable is in the format Variable (Unit)."""
+
+    default_color = "magenta"
+    try:
+        return colour_defaults[variable.split(" (")[0]]
+    except KeyError:
+        try:
+            return colour_defaults[variable]
+        except KeyError:
+            logger.warning(
+                'No default color available for "%s". Using "%s".',
+                variable,
+                default_color,
+            )
+    return default_color
+
+
+def get_unit(variable: str) -> str | None:
+    """Return the unit for a given variable. This assumes that the vairable is in the format Variable (Unit)."""
+
+    default_unit = None
+    try:
+        return variable.split(" (")[1].split(")")[0]
+    except IndexError:
+        logger.warning(
+            'No unit available for "%s". Using "%s".', variable, default_unit
+        )
+        return default_unit
+
+
+def consistent_units(variables: list[str]) -> None:
+    """Determine whether all variables share the same units for plotting."""
+
+    try:
+        units = set(var.split(" (")[1].split(")")[0] for var in variables)
+    except IndexError:
+        return None
+
+    if len(units) > 1:
+        raise ValueError(
+            f"All variables must have the same units for plotting. Units found: {units}"
+        )
+
+
+def relative_luminance(color: Any):
+    """Calculate the relative luminance of a color according to W3C standards
+
+    Args:
+        color (Any):
+            matplotlib color or sequence of matplotlib colors - Hex code,
+            rgb-tuple, or html color name.
+
+    Returns:
+        float:
+            Luminance value between 0 and 1.
+    """
+    rgb = colorConverter.to_rgba_array(color)[:, :3]
+    rgb = np.where(rgb <= 0.03928, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+    lum = rgb.dot([0.2126, 0.7152, 0.0722])
+    try:
+        return lum.item()
+    except ValueError:
+        return lum
+
+
+def contrasting_color(color: Any):
+    """Calculate the contrasting color for a given color.
+
+    Args:
+        color (Any):
+            matplotlib color or sequence of matplotlib colors - Hex code,
+            rgb-tuple, or html color name.
+
+    Returns:
+        str:
+            String code of the contrasting color.
+    """
+    return ".15" if relative_luminance(color) > 0.408 else "w"
 
 
 def cardinality(direction_angle: float, directions: int = 16):
@@ -133,7 +222,9 @@ def angle_from_north(vector: Vector3D) -> float:
     try:
         return np.rad2deg(north.angle_clockwise(vec2d))
     except ZeroDivisionError as exc:
-        raise ValueError("The vector provided is vertical and does not allow for an angle to north to be calculated.") from exc
+        raise ValueError(
+            "The vector provided is vertical and does not allow for an angle to north to be calculated."
+        ) from exc
 
 
 def face_orientation(face: Face3D) -> str:
@@ -154,13 +245,14 @@ def face_orientation(face: Face3D) -> str:
     return cardinality(angle, 8)
 
 
-def _log_message(property_name: str, value: Any, unit: str = "") -> None:
-    logger.info(
-        '> no "%s" provided, using default value of %s%s', property_name, value, unit
-    )
-
-
-def number_validator(value: float | int, prop_name: str, gt: float = None, ge: float = None, lt: float = None, le: float = None) -> None:
+def number_validator(
+    value: float | int,
+    prop_name: str,
+    gt: float = None,
+    ge: float = None,
+    lt: float = None,
+    le: float = None,
+) -> None:
     """Validate a number against a set of constraints.
 
     Args:
@@ -188,7 +280,15 @@ def number_validator(value: float | int, prop_name: str, gt: float = None, ge: f
         raise ValueError(f"{prop_name} must be less than or equal to {le}")
 
 
-def list_of_nums_validator(value: Any, prop_name: str, length: int, ge: float = None, le: float = None, gt: float = None, lt: float = None) -> None:
+def list_of_nums_validator(
+    value: Any,
+    prop_name: str,
+    length: int,
+    ge: float = None,
+    le: float = None,
+    gt: float = None,
+    lt: float = None,
+) -> None:
     """Validate a list of numbers against a set of constraints.
 
     Args:
@@ -208,7 +308,7 @@ def list_of_nums_validator(value: Any, prop_name: str, length: int, ge: float = 
     for i in value:
         number_validator(i, prop_name, gt, ge, lt, le)
 
-  
+
 def estimate_sri_properties(
     target_sri: float, target_emittance: float = 0.85, tolerance: float = 5
 ) -> tuple[float, float]:
@@ -238,7 +338,8 @@ def estimate_sri_properties(
 
     model = LinearRegression()
     model.fit(
-        SRI_DATA[["solar_absorptivity", "thermal_absorptivity"]].values, SRI_DATA["sri"].values
+        SRI_DATA[["solar_absorptivity", "thermal_absorptivity"]].values,
+        SRI_DATA["sri"].values,
     )
 
     possible_combinations = []
@@ -285,11 +386,12 @@ def random_id(seed: int = None, length: int = 8) -> str:
         str: A random identifier.
     """
 
-    alpha_num = list('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
-    
+    alpha_num = list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+
     np.random.seed(seed)
 
     return "".join(np.random.choice(alpha_num, size=length))
+
 
 def calculate_sri(
     solar_reflectance: float,
@@ -359,9 +461,7 @@ def calculate_sri(
     while not np.isclose(
         (1 - solar_reflectance) * insolation
         - (
-            thermal_emittance
-            * sigma
-            * (surface_temperature**4 - sky_temperature**4)
+            thermal_emittance * sigma * (surface_temperature**4 - sky_temperature**4)
             + wind_convection_coefficient * (surface_temperature - air_temperature)
         ),
         0,
@@ -486,3 +586,571 @@ def construction_sri(
         sky_temperature=sky_temperature,
         wind_speed=wind_speed,
     )
+
+
+def describe_analysis_period(
+    analysis_period: list[AnalysisPeriod],
+) -> str:
+    """Create a description of the given analysis period.
+
+    Args:
+        analysis_period (AnalysisPeriod):
+            A Ladybug analysis period.
+
+    Returns:
+        str:
+            A description of the analysis period.
+    """
+
+    if not isinstance(analysis_period, AnalysisPeriod):
+        raise ValueError("Analysis period must be a Ladybug AnalysisPeriod object.")
+
+    base_str = (
+        f"{calendar.month_abbr[analysis_period.st_month]} {analysis_period.st_day:02} to "
+        f"{calendar.month_abbr[analysis_period.end_month]} {analysis_period.end_day:02} between "
+        f"{analysis_period.st_hour:02}:00 and {analysis_period.end_hour:02}:59"
+    )
+    base_str = "".join(base_str)
+
+    return base_str
+
+
+def collection_to_series(data_collection: HourlyContinuousCollection) -> pd.Series:
+    """Convert a Ladybug hourly continuous collection to a Pandas Series."""
+    return pd.Series(
+        data_collection.values,
+        index=INDEX,
+        name=f"{data_collection.header.data_type} ({data_collection.header.unit})",
+    )
+
+
+def simulate_model(
+    model: Model, epw_file: Path, simulation_directory: Path = None
+) -> Path:
+    """Given a Honeybee model and an EPW file, simulate the model and return the simulation results.
+
+    Args:
+        model (Model): A Honeybee model.
+        epw_file (Path): Path to an EPW file.
+        simulation_directory (Path, optional): Directory to save the simulation results. Defaults to None.
+
+    Returns:
+        Path: The sql file resulting from the simulation.
+    """
+
+    raise NotImplementedError("Not yet implemented")
+
+
+def subtract_loss_from_gain(gain_load, loss_load):
+    """Create a single DataCollection from gains and losses."""
+    total_loads = []
+    for gain, loss in zip(gain_load, loss_load):
+        total_load = gain - loss
+        total_load.header.metadata["type"] = total_load.header.metadata["type"].replace(
+            "Gain ", ""
+        )
+        total_loads.append(total_load)
+    return total_loads
+
+
+def room_energy_result(_sql: Path) -> list[list[HourlyContinuousCollection]]:
+    """A duplicate of the method used in Grasshopper to get the data collections necessary for a Load Balance calculation.
+
+    Args:
+        _sql (Path): The path to the SQL file containing Honeybee Energy simulation results.
+
+    Returns:
+        list[list[HourlyContinuousCollections]]: A set of results.
+
+    Reference:
+        https://github.com/ladybug-tools/honeybee-grasshopper-energy/blob/master/honeybee_grasshopper_energy/src/HB%20Read%20Room%20Energy%20Result.py
+
+    Notes:
+        Returned collections include:
+        cooling: DataCollections for the cooling energy in kWh. For Ideal Air
+            loads, this output is the sum of sensible and latent heat that must
+            be removed from each room.  For detailed HVAC systems, this output
+            will be electric energy needed to power each chiller/cooling coil.
+        heating: DataCollections for the heating energy needed in kWh. For Ideal
+            Air loads, this is the heat that must be added to each room.  For
+            detailed HVAC systems, this will be fuel energy or electric energy
+            needed for each boiler/heating element.
+        lighting: DataCollections for the electric lighting energy used for
+            each room in kWh.
+        electric_equip: DataCollections for the electric equipment energy used
+            for each room in kWh.
+        gas_equip: DataCollections for the gas equipment energy used for each
+            room in kWh.
+        process: DataCollections for the process load energy used for each
+            room in kWh.
+        hot_water: DataCollections for the service hote water energy used for each
+            room in kWh.
+        fan_electric: DataCollections for the fan electric energy in kWh for
+            either a ventilation fan or a HVAC system fan.
+        pump_electric: DataCollections for the water pump electric energy in kWh
+            for a heating/cooling system.
+        people_gain: DataCollections for the internal heat gains in each room
+            resulting from people (kWh).
+        solar_gain: DataCollections for the total solar gain in each room (kWh).
+        infiltration_load: DataCollections for the heat loss (negative) or heat
+            gain (positive) in each room resulting from infiltration (kWh).
+        mech_vent_load: DataCollections for the heat loss (negative) or heat gain
+            (positive) in each room resulting from the outdoor air coming through
+            the HVAC System (kWh).
+        nat_vent_load: DataCollections for the heat loss (negative) or heat gain
+            (positive) in each room resulting from natural ventilation (kWh).
+    """
+
+    _sql = Path(_sql).absolute().as_posix()
+
+    # List of all the output strings that will be requested
+    cooling_outputs = LoadBalance.COOLING + (
+        "Cooling Coil Electricity Energy",
+        "Chiller Electricity Energy",
+        "Zone VRF Air Terminal Cooling Electricity Energy",
+        "VRF Heat Pump Cooling Electricity Energy",
+        "Chiller Heater System Cooling Electricity Energy",
+        "District Cooling Water Energy",
+        "Evaporative Cooler Electricity Energy",
+    )
+    heating_outputs = LoadBalance.HEATING + (
+        "Boiler NaturalGas Energy",
+        "Heating Coil Total Heating Energy",
+        "Heating Coil NaturalGas Energy",
+        "Heating Coil Electricity Energy",
+        "Humidifier Electricity Energy",
+        "Zone VRF Air Terminal Heating Electricity Energy",
+        "VRF Heat Pump Heating Electricity Energy",
+        "VRF Heat Pump Defrost Electricity Energy",
+        "VRF Heat Pump Crankcase Heater Electricity Energy",
+        "Chiller Heater System Heating Electricity Energy",
+        "District Heating Water Energy",
+        "Baseboard Electricity Energy",
+        "Hot_Water_Loop_Central_Air_Source_Heat_Pump Electricity Consumption",
+        "Boiler Electricity Energy",
+        "Water Heater NaturalGas Energy",
+        "Water Heater Electricity Energy",
+        "Cooling Coil Water Heating Electricity Energy",
+    )
+    lighting_outputs = LoadBalance.LIGHTING
+    electric_equip_outputs = LoadBalance.ELECTRIC_EQUIP
+    gas_equip_outputs = LoadBalance.GAS_EQUIP
+    process_outputs = LoadBalance.PROCESS
+    shw_outputs = ("Water Use Equipment Heating Energy",) + LoadBalance.HOT_WATER
+    fan_electric_outputs = (
+        "Zone Ventilation Fan Electricity Energy",
+        "Fan Electricity Energy",
+        "Cooling Tower Fan Electricity Energy",
+    )
+    pump_electric_outputs = "Pump Electricity Energy"
+    people_gain_outputs = LoadBalance.PEOPLE_GAIN
+    solar_gain_outputs = LoadBalance.SOLAR_GAIN
+    infil_gain_outputs = LoadBalance.INFIL_GAIN
+    infil_loss_outputs = LoadBalance.INFIL_LOSS
+    vent_loss_outputs = LoadBalance.VENT_LOSS
+    vent_gain_outputs = LoadBalance.VENT_GAIN
+    nat_vent_gain_outputs = LoadBalance.NAT_VENT_GAIN
+    nat_vent_loss_outputs = LoadBalance.NAT_VENT_LOSS
+    all_output = [
+        cooling_outputs,
+        heating_outputs,
+        lighting_outputs,
+        electric_equip_outputs,
+        gas_equip_outputs,
+        process_outputs,
+        shw_outputs,
+        fan_electric_outputs,
+        pump_electric_outputs,
+        people_gain_outputs,
+        solar_gain_outputs,
+        infil_gain_outputs,
+        infil_loss_outputs,
+        vent_loss_outputs,
+        vent_gain_outputs,
+        nat_vent_gain_outputs,
+        nat_vent_loss_outputs,
+    ]
+
+    sql_obj = SQLiteResult(_sql)
+
+    # get all of the results relevant for energy use
+    cooling = sql_obj.data_collections_by_output_name(cooling_outputs)
+    heating = sql_obj.data_collections_by_output_name(heating_outputs)
+    lighting = sql_obj.data_collections_by_output_name(lighting_outputs)
+    electric_equip = sql_obj.data_collections_by_output_name(electric_equip_outputs)
+    hot_water = sql_obj.data_collections_by_output_name(shw_outputs)
+    gas_equip = sql_obj.data_collections_by_output_name(gas_equip_outputs)
+    process = sql_obj.data_collections_by_output_name(process_outputs)
+    fan_electric = sql_obj.data_collections_by_output_name(fan_electric_outputs)
+    pump_electric = sql_obj.data_collections_by_output_name(pump_electric_outputs)
+
+    # get all of the results relevant for gains and losses
+    people_gain = sql_obj.data_collections_by_output_name(people_gain_outputs)
+    solar_gain = sql_obj.data_collections_by_output_name(solar_gain_outputs)
+    infil_gain = sql_obj.data_collections_by_output_name(infil_gain_outputs)
+    infil_loss = sql_obj.data_collections_by_output_name(infil_loss_outputs)
+    vent_loss = sql_obj.data_collections_by_output_name(vent_loss_outputs)
+    vent_gain = sql_obj.data_collections_by_output_name(vent_gain_outputs)
+    nat_vent_gain = sql_obj.data_collections_by_output_name(nat_vent_gain_outputs)
+    nat_vent_loss = sql_obj.data_collections_by_output_name(nat_vent_loss_outputs)
+
+    # do arithmetic with any of the gain/loss data collections
+    infiltration_load = []
+    if len(infil_gain) == len(infil_loss):
+        infiltration_load = subtract_loss_from_gain(infil_gain, infil_loss)
+    if len(vent_gain) == len(vent_loss) == len(cooling) == len(heating):
+        mech_vent_loss = subtract_loss_from_gain(heating, vent_loss)
+        mech_vent_gain = subtract_loss_from_gain(cooling, vent_gain)
+        mech_vent_load = [
+            data.duplicate()
+            for data in subtract_loss_from_gain(mech_vent_gain, mech_vent_loss)
+        ]
+        for load in mech_vent_load:
+            load.header.metadata["type"] = "Zone Ideal Loads Ventilation Heat Energy"
+    nat_vent_load = []
+    if len(nat_vent_gain) == len(nat_vent_loss):
+        nat_vent_load = subtract_loss_from_gain(nat_vent_gain, nat_vent_loss)
+
+    # remove the district hot water system used for service hot water from space heating
+    shw_equip, distr_i = [], None
+    for i, heat in enumerate(heating):
+        if not isinstance(heat, float):
+            try:
+                heat_equip = heat.header.metadata["System"]
+                if heat_equip.startswith("SHW"):
+                    shw_equip.append(i)
+                elif heat_equip == "SERVICE HOT WATER DISTRICT HEAT":
+                    distr_i = i
+            except KeyError:
+                pass
+    if len(shw_equip) != 0 and distr_i is None:
+        hot_water = [heating.pop(i) for i in reversed(shw_equip)]
+    elif distr_i is not None:
+        for i in reversed(shw_equip + [distr_i]):
+            heating.pop(i)
+
+    return [
+        cooling,
+        heating,
+        lighting,
+        electric_equip,
+        gas_equip,
+        process,
+        hot_water,
+        fan_electric,
+        pump_electric,
+        people_gain,
+        solar_gain,
+        infiltration_load,
+        mech_vent_load,
+        nat_vent_load,
+    ]
+
+
+def face_result(_sql: Path) -> list[HourlyContinuousCollection]:
+    """A duplicate of the method used in Grasshopper to get the data collections necessary for a Load Balance calculation.
+
+    Args:
+        _sql (Path): The path to the SQL file containing Honeybee Energy simulation results.
+
+    Returns:
+        list[HourlyContinuousCollection]: A set of results.
+
+    Reference:
+        https://github.com/ladybug-tools/honeybee-grasshopper-energy/blob/master/honeybee_grasshopper_energy/src/HB%20Read%20Face%20Result.py
+
+    Notes:
+        Returned collections include:
+        face_indoor_temp: DataCollections for the indoor face temperature of each face.
+        face_outdoor_temp: DataCollections for the outdoor face temperature of each face.
+        face_energy_flow: DataCollections for the energy flow through each face.
+    """
+
+    _sql = Path(_sql).absolute().as_posix()
+
+    # List of all the output strings that will be requested
+    face_indoor_temp_output = "Surface Inside Face Temperature"
+    face_outdoor_temp_output = "Surface Outside Face Temperature"
+    opaque_energy_flow_output = "Surface Inside Face Conduction Heat Transfer Energy"
+    window_loss_output = "Surface Window Heat Loss Energy"
+    window_gain_output = "Surface Window Heat Gain Energy"
+    all_output = [
+        face_indoor_temp_output,
+        face_outdoor_temp_output,
+        opaque_energy_flow_output,
+        window_loss_output,
+        window_gain_output,
+    ]
+
+    def ironpython_results(sql_file):
+        sql_obj = SQLiteResult(sql_file)  # create the SQL result parsing object
+        # get all of the results
+        face_indoor_temp = sql_obj.data_collections_by_output_name(
+            face_indoor_temp_output
+        )
+        face_outdoor_temp = sql_obj.data_collections_by_output_name(
+            face_outdoor_temp_output
+        )
+        opaque_energy_flow = sql_obj.data_collections_by_output_name(
+            opaque_energy_flow_output
+        )
+        window_loss = sql_obj.data_collections_by_output_name(window_loss_output)
+        window_gain = sql_obj.data_collections_by_output_name(window_gain_output)
+        return (
+            face_indoor_temp,
+            face_outdoor_temp,
+            opaque_energy_flow,
+            window_loss,
+            window_gain,
+        )
+
+    (
+        face_indoor_temp,
+        face_outdoor_temp,
+        opaque_energy_flow,
+        window_loss,
+        window_gain,
+    ) = ironpython_results(_sql)
+
+    # do arithmetic with any of the gain/loss data collections
+    window_energy_flow = []
+    if len(window_gain) == len(window_loss):
+        window_energy_flow = subtract_loss_from_gain(window_gain, window_loss)
+    face_energy_flow = opaque_energy_flow + window_energy_flow
+
+    return face_indoor_temp, face_outdoor_temp, face_energy_flow
+
+
+def room_comfort_result(_sql: Path) -> list[HourlyContinuousCollection]:
+    """A duplicate of the method used in Grasshopper to get the data collections necessary for thermal comfort assessment.
+
+    Args:
+        _sql (Path): The path to the SQL file containing Honeybee Energy simulation results.
+
+    Returns:
+        list[HourlyContinuousCollection]: A set of results.
+
+    Reference:
+        https://github.com/ladybug-tools/honeybee-grasshopper-energy/blob/master/honeybee_grasshopper_energy/src/HB%20Read%20Room%20Comfort%20Result.py
+
+    Notes:
+        oper_temp: DataCollections for the operative temperature of each zone.
+        air_temp: DataCollections for the air temperature of each zone.
+        rad_temp: DataCollections for the radiant temperature of each zone.
+        rel_humidity: DataCollections for the relative humidity of each zone.
+        unmet_heat: DataCollections for the unmet heating setpoint time of each zone.
+        unmet_cool: DataCollections for the unmet cooling setpoint time of each zone.
+    """
+
+    _sql = Path(_sql).absolute().as_posix()
+    sql_obj = SQLiteResult(_sql)
+
+    # List of all the output strings that will be requested
+    oper_temp_output = "Zone Operative Temperature"
+    air_temp_output = "Zone Mean Air Temperature"
+    rad_temp_output = "Zone Mean Radiant Temperature"
+    rel_humidity_output = "Zone Air Relative Humidity"
+    heat_setpt_output = "Zone Heating Setpoint Not Met Time"
+    cool_setpt_output = "Zone Cooling Setpoint Not Met Time"
+    all_output = [
+        oper_temp_output,
+        air_temp_output,
+        rad_temp_output,
+        rel_humidity_output,
+        heat_setpt_output,
+        cool_setpt_output,
+    ]
+
+    # get all of the results
+    oper_temp = sql_obj.data_collections_by_output_name(oper_temp_output)
+    air_temp = sql_obj.data_collections_by_output_name(air_temp_output)
+    rad_temp = sql_obj.data_collections_by_output_name(rad_temp_output)
+    rel_humidity = sql_obj.data_collections_by_output_name(rel_humidity_output)
+    unmet_heat = sql_obj.data_collections_by_output_name(heat_setpt_output)
+    unmet_cool = sql_obj.data_collections_by_output_name(cool_setpt_output)
+
+    return oper_temp, air_temp, rad_temp, rel_humidity, unmet_heat, unmet_cool
+
+
+def load_balance(
+    _rooms_model: list[Room] | Model,
+    cooling_: list[HourlyContinuousCollection],
+    heating_: list[HourlyContinuousCollection],
+    lighting_: list[HourlyContinuousCollection],
+    electric_equip_: list[HourlyContinuousCollection],
+    gas_equip_: list[HourlyContinuousCollection],
+    process_: list[HourlyContinuousCollection],
+    hot_water_: list[HourlyContinuousCollection],
+    people_gain_: list[HourlyContinuousCollection],
+    solar_gain_: list[HourlyContinuousCollection],
+    infiltration_load_: list[HourlyContinuousCollection],
+    mech_vent_load_: list[HourlyContinuousCollection],
+    nat_vent_load_: list[HourlyContinuousCollection],
+    face_energy_flow_: list[HourlyContinuousCollection],
+) -> list[list[HourlyContinuousCollection]]:
+    """A method to calculate the load balance of a building model, replicating the code used in the Grasshopper component.
+
+    Args:
+        _rooms_model (list[Room] | Model):
+            Either a list of Rooms or a Model object containing the rooms.
+        cooling_ (list[HourlyContinuousCollection]):
+            A set of data collections for cooling energy.
+        heating_ (list[HourlyContinuousCollection]):
+            A set of data collections for heating energy.
+        lighting_ (list[HourlyContinuousCollection]):
+            A set of data collections for lighting energy.
+        electric_equip_ (list[HourlyContinuousCollection]):
+            A set of data collections for electric equipment energy.
+        gas_equip_ (list[HourlyContinuousCollection]):
+            A set of data collections for gas equipment energy.
+        process_ (list[HourlyContinuousCollection]):
+            A set of data collections for process energy.
+        hot_water_ (list[HourlyContinuousCollection]):
+            A set of data collections for hot water energy.
+        people_gain_ (list[HourlyContinuousCollection]):
+            A set of data collections for people gain energy.
+        solar_gain_ (list[HourlyContinuousCollection]):
+            A set of data collections for solar gain energy.
+        infiltration_load_ (list[HourlyContinuousCollection]):
+            A set of data collections for infiltration load energy.
+        mech_vent_load_ (list[HourlyContinuousCollection]):
+            A set of data collections for mechanical ventilation load energy.
+        nat_vent_load_ (list[HourlyContinuousCollection]):
+            A set of data collections for natural ventilation load energy.
+        face_energy_flow_ (list[HourlyContinuousCollection]):
+            A set of data collections for face energy flow.
+
+    Returns:
+        balance (list[HourlyContinuousCollection]): A set of data collections containing the load balance results.
+        balance_stor (list[HourlyContinuousCollection]): A set of data collections containing the load balance results, including thermal mass.
+        norm_bal (list[HourlyContinuousCollection]): A set of data collections containing the normalized load balance results.
+        norm_bal_stor (list[HourlyContinuousCollection]): A set of data collections containing the normalized load balance results, including thermal mass.
+    """
+
+    def check_input(input_list):
+        """Check that an input isn't a zero-length list or None."""
+        return None if len(input_list) == 0 or input_list[0] is None else input_list
+
+    # extract any rooms from input Models
+    is_model, floor_area = False, 0
+    rooms = []
+    for hb_obj in _rooms_model:
+        if isinstance(hb_obj, Model):
+            rooms.extend(hb_obj.rooms)
+            is_model = True
+            floor_area += hb_obj.floor_area
+        else:
+            rooms.append(hb_obj)
+
+    # if a detailed HVAC system is assigned to the rooms, give a warning
+    bad_rooms = []
+    for room in rooms:
+        hvac = room.properties.energy.hvac
+        if hvac is not None and not isinstance(hvac, (IdealAirSystem)):
+            bad_rooms.append(room.display_name)
+    if len(bad_rooms) != 0:
+        if len(bad_rooms) > 20:
+            bad_rooms = bad_rooms[:20] + ["..."]
+        msg = (
+            "The following Rooms use HVAC systems other than Ideal Air.\n"
+            "The cooling and heating results for detailed HVAC are electricity and\n"
+            "fuel, which cannot be used in load balances of thermal energy.\n"
+            "Either replace these detailed HVAC systems with Ideal Air Systems or \n"
+            'use the "HB Annual Loads" component to get a load balance these\n'
+            "roomswith detailed HVAC:\n\n{}".format("\n".join(bad_rooms))
+        )
+        logger.warning(msg)
+
+    # if the input is for individual rooms, check the solar to ensure no groued zones
+    if not is_model and len(solar_gain_) != 0:
+        msg = (
+            "Air boundaries with grouped zones detected in solar data but individual "
+            "rooms were input.\nIt is recommended that the full model be input for "
+            "_rooms_model to ensure correct representaiton of solar."
+        )
+        for coll in solar_gain_:
+            if "Solar Enclosure" in coll.header.metadata["Zone"]:
+                logger.warning(msg)
+
+    # process all of the inputs
+    cooling_ = check_input(cooling_)
+    heating_ = check_input(heating_)
+    lighting_ = check_input(lighting_)
+    electric_equip_ = check_input(electric_equip_)
+    gas_equip_ = check_input(gas_equip_)
+    process_ = check_input(process_)
+    hot_water_ = check_input(hot_water_)
+    people_gain_ = check_input(people_gain_)
+    solar_gain_ = check_input(solar_gain_)
+    infiltration_load_ = check_input(infiltration_load_)
+    mech_vent_load_ = check_input(mech_vent_load_)
+    nat_vent_load_ = check_input(nat_vent_load_)
+    face_energy_flow_ = check_input(face_energy_flow_)
+
+    # process hot water to ensure it's the correct type
+    hw_type = "Water Use Equipment Heating Energy"
+    if hot_water_ is not None and hot_water_[0].header.metadata["type"] == hw_type:
+        hot_water_ = [hw.duplicate() * 0.25 for hw in hot_water_]
+        for hw in hot_water_:
+            hw.header.metadata = {
+                "type": "Water Use Equipment Zone Sensible Heat Gain Energy",
+                "System": hw.header.metadata["System"],
+            }
+
+    # construct the load balance object and output the results
+    load_bal_obj = LoadBalance(
+        rooms,
+        cooling_,
+        heating_,
+        lighting_,
+        electric_equip_,
+        gas_equip_,
+        process_,
+        hot_water_,
+        people_gain_,
+        solar_gain_,
+        infiltration_load_,
+        mech_vent_load_,
+        nat_vent_load_,
+        face_energy_flow_,
+        "Meters",
+        use_all_solar=is_model,
+    )
+    if is_model:
+        load_bal_obj.floor_area = floor_area
+
+    balance = load_bal_obj.load_balance_terms(False, False)
+    balance_stor = []
+    norm_bal = []
+    norm_bal_stor = []
+    if len(balance) != 0:
+        balance_stor = balance + [load_bal_obj.storage]
+        norm_bal = load_bal_obj.load_balance_terms(True, False)
+        norm_bal_stor = load_bal_obj.load_balance_terms(True, True)
+
+    return balance, balance_stor, norm_bal, norm_bal_stor
+
+
+def annual_eui(_sql) -> pd.Series:
+    """Get the EUI from a SQL file."""
+    results = eui_from_sql(_sql)
+    _, _, end_use_pairs = (
+        results["eui"],
+        results["total_floor_area"],
+        results["end_uses"],
+    )
+    eui_end_use = end_use_pairs.values()
+    end_uses = [use.replace("_", " ").title() for use in end_use_pairs.keys()]
+    return pd.Series(data=eui_end_use, index=end_uses, name="EUI (kWh/m2)")
+
+
+def suspendlogging(func):
+    @wraps(func)
+    def inner(*args, **kwargs):
+        previousloglevel = logger.getEffectiveLevel()
+        try:
+            return func(*args, **kwargs)
+        finally:
+            logger.setLevel(previousloglevel)
+
+    return inner

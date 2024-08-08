@@ -24,14 +24,14 @@ os.environ["HOME"] = (Path("C:/Users/") / getpass.getuser()).as_posix()
 # LOGGING
 fileConfig(DATA_PATH / "logging_config.ini")
 logger = logging.getLogger(__name__.split(".", maxsplit=1)[0])
-logger.setLevel(logging.DEBUG)  # set to DEBUG or INFO for debugging, and WARNING for production
+logger.setLevel(logging.INFO)  # set to DEBUG or INFO for debugging, WARNING for production, and FATAL to disable
 
 # CONSTANTS
 INDEX = pd.to_datetime(AnalysisPeriod().datetimes)
 
 # DATASETS
 SRI_DATA = pd.read_csv(DATA_PATH / "sri_data.csv", header=0)
-DEFAULT_SYSTEMS = pd.read_excel(DATA_PATH / "default_systems.xlsx", engine='openpyxl')
+DEFAULT_SYSTEMS = pd.read_csv(DATA_PATH / "default_systems.csv", header=0, index_col=None)
 
 # PLOT STYLING
 plt.style.use(DATA_PATH / "bhom.mplstyle")
@@ -42,22 +42,22 @@ FIGSIZE_SQUARE = (8, 8)
 
 # COLOR DEFAULTS
 colour_defaults = {
-    "Heating": "#d2424c",
-    "Cooling": "#5c6dd8",
-    "Lighting": "#b2b042",
-    "Solar": "#df9641",
-    "Service Hot Water": "#c75db0",
-    "Electric Equipment": "#64b546",
-    "Lifts": "#8b74b8",
-    "Pumps": "#5a7936",
-    "Fans": "#5d9ad5",
-    "Storage": "#a3793f",
-    "People": "#c26c80",
-    "Mechanical Ventilation": "#3dbbb8",
+    "Heating": "#D2424C",
+    "Cooling": "#5C6DD8",
+    "Lighting": "#B2B042",
+    "Solar": "#DF9641",
+    "Hot Water": "#C75DB0",
+    "Electric Equipment": "#64B546",
+    "Lifts": "#8B74B8",
+    "Pumps": "#5A7936",
+    "Fans": "#5D9AD5",
+    "Storage": "#A3793F",
+    "People": "#C26C80",
+    "Mechanical Ventilation": "#3DBBB8",
     "Window Conduction": "#9C9C9C",
     "Opaque Conduction": "#3F3F3F",
-    "Infiltration": "#5bb57c",
-    "Gas Equipment": "#cd3e78",
+    "Infiltration": "#5BB57C",
+    "Gas Equipment": "#CD3E78",
     "Zone Mean Air Temperature": "#FF9696",
     "Zone Mean Radiant Temperature": "#FF9100",
     "Zone Air Relative Humidity": "#ABC9FF",
@@ -68,8 +68,6 @@ colour_defaults = {
     "Humidifying Setpoint": "#00B52A",
     "Dehumidifying Setpoint": "#FF8C3A"
 }
-FORMATTING = pd.DataFrame.from_dict(colour_defaults, orient="index")
-FORMATTING.columns = ["color"]
 
 LOAD_BALANCE_TERMS = [
     "Heating (Wh)",

@@ -3,36 +3,48 @@
 
 import concurrent
 import concurrent.futures
+import copy
+import inspect
+import json
 import warnings
+from itertools import product
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from honeybee.config import folders as hb_folders
 from honeybee.typing import valid_string
-from ladybug.epw import EPW
+from ladybug.epw import EPW, AnalysisPeriod
+from matplotlib import pyplot as plt
 from pydantic import BaseModel, Field, root_validator
+from tqdm import tqdm
 
-from .config import logger
-from .enums import BuildingType
+from .config import FIGSIZE_RECTANGLE, FIGSIZE_SQUARE, INDEX, logger
+from .enums import (BuildingType, ConstructionType, EconomizerType,
+                    TerrainType, Vintage)
+from .plot import diurnal, duration_curve, pie, stacked_bar
 from .typology import Typology
-from .util import random_id
+from .util import describe_analysis_period, get_color
 
 # pylint: enable=E0401
 # endregion: IMPORTS
 
+RELOAD = True
 
 class Masterplan(BaseModel):
     """A masterplan containing a set of building typologies, in the location represented by and EPW file."""
 
     identifier: str = Field(description="A unique identifier for the masterplan.")
-    epw_file: Path = Field(
-        description="The EPW file representing the location of the masterplan."
-    )
     typologies: list[Typology] = Field(
         description="A list of building typologies in the masterplan.",
         unique_items=True,
     )
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.identifier})"
+
+    def __repr__(self) -> str:
+        return self.__str__()
 
     @root_validator(pre=False)
     def validate_atts(cls, values):
@@ -42,19 +54,20 @@ class Masterplan(BaseModel):
         identifier = values.get("identifier")
         valid_string(identifier)
 
-        # Check that the EPW file exists.
-        epw_file = values.get("epw_file")
-        if not Path(epw_file).exists():
-            raise ValueError(f"The EPW file {epw_file} does not exist.")
-
         return values
 
     @classmethod
-    def from_excel(cls, excel_file: Path, sheet_name: str) -> "Masterplan":
+    def from_excel(
+        cls, excel_file: Path, sheet_name: str, use_defaults: bool = True
+    ) -> "Masterplan":
         """Create a masterplan from an Excel file."""
 
+        excel_file = Path(excel_file)
+
+        logger.info(f"Creating Masterplan from {excel_file.stem}.")
+
         # check that excel file exists
-        if not Path(excel_file).exists():
+        if not excel_file.exists():
             raise ValueError(f"The Excel file {excel_file} does not exist.")
 
         # Read the Excel file
@@ -83,34 +96,92 @@ class Masterplan(BaseModel):
                 )
 
         # Get the typologies
-        typologies: list[Typology] = []
-        for n, (_, s) in enumerate(df.items()):
-            if n == 0:
-                continue
+        if len(df.columns) > 3:
+            with concurrent.futures.ProcessPoolExecutor() as executor:
+                futures = []
+                for n, (_, s) in enumerate(df.items()):
+                    if n == 0:
+                        continue
+                    futures.append(
+                        executor.submit(Typology.from_dict, s.to_dict(), use_defaults)
+                    )
+                typologies = [future.result() for future in futures]
+        else:
+            typologies: list[Typology] = []
+            for n, (_, s) in enumerate(df.items()):
+                if n == 0:
+                    continue
+                typologies.append(
+                    Typology.from_dict(s.to_dict(), use_defaults=use_defaults)
+                )
 
-            typ = Typology.parse_obj_extended(s.to_dict(), replace_null_with_defaults=True, building_type=BuildingType(s["building_type"]))
+        obj = cls(identifier=sheet_name, typologies=typologies)
 
-            typologies.append(typ)
+        return obj
 
-        return cls(identifier=sheet_name, epw_file=epw_file, typologies=typologies)
+    def to_excel(self, excel_file: Path, sheet_name: str = None) -> None:
+        """Write the masterplan typologies to an Excel file.
 
-    @classmethod
-    def random(cls, n_typologies: int = 5) -> "Masterplan":
-        """Create a random masterplan."""
+        Args:
+            excel_file: The path to the Excel file.
+            sheet_name: The name of the sheet to write to. If None, the identifier of the masterplan will be used.
 
-        # reference the test EPW here ... this is bad practice, but meh
-        epw_file = Path(__file__).absolute().parent / "test" / "test.epw"
+        Returns:
+            None
+        """
 
-        return cls(
-            identifier=random_id(),
-            epw_file=epw_file,
-            typologies=[Typology.random() for _ in range(n_typologies)],
+        if sheet_name is None:
+            sheet_name = self.identifier
+
+        # get metadata to add as additional sheet
+        meta_df = []
+        enums = [BuildingType, TerrainType, Vintage, EconomizerType, ConstructionType]
+        for enm in enums:
+            meta_df.append(pd.Series([i.value for i in enm], name=enm))
+        meta_df = pd.concat(meta_df, axis=1)
+
+        # get data for the masterplan
+        data_df = self.df().reset_index()
+        data_df.insert(
+            1,
+            "units",
+            [
+                Typology.__fields__[i].field_info.extra["unit"]
+                for i in Typology.__fields__
+            ],
         )
+        data_df.set_index(keys=[data_df.columns[0], data_df.columns[1]], inplace=True)
+
+        with pd.ExcelWriter(excel_file, engine="openpyxl", mode="w") as writer:
+            data_df.to_excel(writer, sheet_name=sheet_name, header=False, index=True)
+            meta_df.to_excel(writer, sheet_name="metadata", header=True, index=False)
+
+        return None
+
+    def df(self, extra: bool = False) -> pd.DataFrame:
+        """Return the data for the masterplan."""
+
+        df = pd.concat(
+            [pd.Series(json.loads(typ.json())) for typ in self.typologies], axis=1
+        )
+
+        if extra:
+            df = df.T
+            df["number_of_buildings"] = [
+                typ._number_of_buildings() for typ in self.typologies
+            ]
+            df["max_occupants_per_building"] = [
+                typ.occupant_density * typ.typical_building_gfa
+                for typ in self.typologies
+            ]
+            df = df.T
+
+        return df
 
     @property
     def epw(self) -> EPW:
         """Return the EPW object for the masterplan."""
-        return EPW(self.epw_file)
+        return self.typologies[0].epw
 
     @property
     def simulation_directory(self) -> Path:
@@ -124,73 +195,376 @@ class Masterplan(BaseModel):
             typology.identifier: typology.total_area for typology in self.typologies
         }
 
-    def population(self) -> pd.DataFrame:
+    def eui(self) -> pd.DataFrame:
+        """Get the EUI for each of the typologies.
+
+        Args:
+            annual: If True, return the annual EUI. If False, return the monthly EUI.
+
+        Returns:
+            A DataFrame with the EUI for each typology.
+        """
+
+        df = pd.concat(
+            [
+                typ.annual_eui(directory=self.simulation_directory)
+                for typ in self.typologies
+            ],
+            axis=1,
+            keys=[typ.identifier for typ in self.typologies],
+        )
+
+        return df
+
+    def population(self, per_typology: bool = False) -> pd.DataFrame | pd.Series:
         """Estimate the population of the masterplan.
 
         Note:
-            This is a simple estimate based on the total number of occupants in each building typology at any time.
+            This is a simple estimate based on the total number of occupants in all buildings in the masterplan at any time.
         """
-        return pd.concat([typ.occupants for typ in self.typologies], keys=[typ.identifier for typ in self.typologies], axis=1)
 
-    def results(self) -> None:
+        df = pd.concat(
+            [typ._occupants(per_building=False) for typ in self.typologies],
+            keys=[typ.identifier for typ in self.typologies],
+            axis=1,
+        ).astype(int)
+
+        if not per_typology:
+            df = df.sum(axis=1)
+
+        return df
+
+    def simulate(self) -> None:
         """Simulate the energy demands of the masterplan."""
 
         # Create a directory for the simulation
         directory = self.simulation_directory
         directory.mkdir(exist_ok=True, parents=True)
 
+        # get typologies as list
+        typologies = copy.copy(self.typologies)
+
+        # remove typologies that already have results
+        for i in self.typologies:
+            if i._results_exist(directory=self.simulation_directory):
+                typologies.remove(i)
+
+        if len(typologies) == 0:
+            return None
+
         # concurrently simulate each typology
         with concurrent.futures.ProcessPoolExecutor() as executor:
             futures = [
                 executor.submit(
-                    obj.load_results,
-                    self.epw,
+                    obj._simulate,
                     directory,
                 )
                 for obj in self.typologies
             ]
-            results = [
-                future.result() for future in concurrent.futures.as_completed(futures)
-            ]
+            _ = [future.result() for future in futures]
 
-        results = dict(zip([typ.identifier for typ in self.typologies], results))
+        return None
 
-        # make absolute if requested
-        denormalised_results = {}
-        for result_k, result_v in results.items():
-            new_df = []
-            for col, vals in result_v.items():
-                if col.endswith("/m2)"):
-                    new_vals = vals * self.gfa_table[result_k]
-                    new_name = col.replace("/m2)", ")")
-                    new_df.append(new_vals.rename(new_name))
-                else:
-                    new_df.append(vals)
-            denormalised_results[result_k] = pd.concat(new_df, axis=1)
+    def energy_consumption(self, combine_buildings: bool = False) -> pd.DataFrame:
+        """Get the energy consumption of the typology.
 
-        # convert to dataframe
+        Args:
+            normalise: If True, normalise the energy consumption to the total GFA of the masterplan.
+
+        Returns:
+            A DataFrame with the energy consumption of each typology.
+        """
+
+        # run the simulation first to get results
+        self.simulate()
+
+        # load each typology's results
         df = pd.concat(
-            denormalised_results,
+            [
+                typ.energy_consumption(
+                    directory=self.simulation_directory,
+                    normalised=False,
+                    single_building=False,
+                )
+                for typ in self.typologies
+            ],
             axis=1,
             keys=[typ.identifier for typ in self.typologies],
         )
 
-        # save to file
-        df.to_csv(directory / "results.csv")
+        if combine_buildings:
+            df = df.T.groupby(df.columns.get_level_values(1)).sum().T
 
         return df
 
-    def energy_consumption(self) -> pd.DataFrame:
-        """Get the energy consumption of the typology."""
+    def external_conditions(self) -> pd.DataFrame:
+        """Get the external conditions from the EPW file being used."""
+        return self.typologies[0].external_conditions()
 
-        df = self.results()
+    def _all_data(self, normalised: bool = False) -> pd.DataFrame:
+        """Get all room conditions for all typologies, and the their conditions.
 
-        res = []
-        for typology in self.typologies:
-            res.append(
-                typology.energy_consumption(
-                    self.epw, self.simulation_directory, df[typology.identifier]
+        This method, when called also acts as a "do everything" method, as it
+        will run the simulation and prepare datasets for onward methods.
+        """
+
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            futures = [
+                executor.submit(
+                    obj._all_data,
+                    self.simulation_directory,
+                    normalised,
+                    False,
+                    True,
                 )
+                for obj in self.typologies
+            ]
+            _ = [future.result() for future in futures]
+
+        # combine data
+        all_objects = [
+            i._all_data(
+                directory=self.simulation_directory,
+                normalised=normalised,
+                include_external=True,
+            )
+            for i in self.typologies
+        ]
+        keys = [typ.identifier for typ in self.typologies]
+        df = pd.concat(all_objects, axis=1, keys=keys)
+
+        return df
+    
+    def plot_annual_monthly(
+        self,
+        ax: plt.Axes = None,
+        rule: str = "MS",
+        label: bool = True,
+        legend: bool = True,
+    ) -> plt.Axes:
+        """Plot the monthly energy consumption of the Masterplan."""
+
+        logger.info(f"{self} - Plotting annual monthly energy consumption")
+
+        df = self.energy_consumption(combine_buildings=True)
+
+        if ax is None:
+            ax = plt.gca()
+
+        ax = stacked_bar(df=df, ax=ax, rule=rule, label=label, legend=legend)
+
+        _ = ax.set_title(f"{self.identifier} - Energy Consumption")
+
+        return ax
+
+    def plot_pie(
+        self,
+        ax: plt.Axes = None,
+        label: bool = True,
+        legend: bool = True,
+        analysis_period: AnalysisPeriod = AnalysisPeriod(),
+        **kwargs,
+    ) -> plt.Axes:
+        """Plot a pie chart of the annual energy consumption of the Masterplan."""
+
+        logger.info(f"{self} - Plotting annual energy consumption pie chart")
+
+        df = self.energy_consumption(combine_buildings=True)
+        series = df.loc[pd.to_datetime(analysis_period.datetimes)].sum(axis=0)
+        series.sort_values(ascending=False, inplace=True)
+
+        # change units within index
+        series.index = [i.split(" (")[0] for i in series.index]
+
+        if ax is None:
+            ax = plt.gca()
+
+        # create the autopct labeller for the wedges
+        def make_autopct(values):
+            def my_autopct(pct):
+                total = sum(values)
+                value = int(round(pct * total / 100.0))
+                # don't show wedges smaller than 7.5%
+                if pct / 100 > 0.075:
+                    return f"{pct / 100:0.1%}\n({value / 1000:,.0f}MWh)"
+                return ""
+
+            return my_autopct
+
+        ax = pie(
+            series=series,
+            ax=ax,
+            legend=legend,
+            label=label,
+            autopct=make_autopct(series.values),
+            **kwargs,
+        )
+
+        _ = ax.set_title(
+            f"{self.identifier} - Energy Consumption\n{describe_analysis_period(analysis_period)}\n{series.sum() / 1000:,.0f}MWh"
+        )
+
+        return ax
+
+    def plot_diurnal(
+        self,
+        ax: plt.Axes = None,
+        legend: bool = True,
+        logy: bool = False,
+    ) -> plt.Axes:
+        """Plot a monthly diurnal profile for energy consumption of the Masterplan."""
+
+        logger.info(f"{self} - Plotting diurnal energy consumption")
+
+        df = self.energy_consumption(combine_buildings=True)
+
+        if ax is None:
+            ax = plt.gca()
+
+        ax = diurnal(df, ax=ax, legend=legend, logy=logy)
+
+        _ = ax.set_title(f"{self.identifier} - Energy Consumption")
+
+        return ax
+
+    def plot_duration_curve(
+        self,
+        ax: plt.Axes = None,
+        remove_zero: bool = True,
+        legend: bool = True,
+        **kwargs,
+    ) -> plt.Axes:
+        """Plot a duration curve for energy consumption of the Masterplan."""
+
+        logger.info(f"{self} - Plotting duration curve")
+
+        df = self.energy_consumption(combine_buildings=True)
+
+        if ax is None:
+            ax = plt.gca()
+
+        ax = duration_curve(df, ax=ax, legend=legend, remove_zero=remove_zero, **kwargs)
+
+        _ = ax.set_title(f"{self.identifier} - Energy Consumption - Duration Curve")
+
+        return ax
+
+    def plot_pie_distribution(
+        self,
+        ax: plt.Axes = None,
+        analysis_period: AnalysisPeriod = AnalysisPeriod(),
+        legend: bool = True,
+    ) -> plt.Axes:
+        """Plot a pie chart, with all typologies represented as a proportion of the total GFA."""
+
+        df = self.energy_consumption(combine_buildings=False)
+        temp = df.loc[pd.to_datetime(analysis_period.datetimes)].sum(axis=0).unstack()
+        temp = temp.loc[temp.sum(axis=1).sort_values(ascending=False).index]
+
+        # reorder to get legend in descending consumption order
+        temp = temp[temp.sum().sort_values(ascending=False).index]
+
+        size = 0.1
+        vals = temp.values
+        inner_colors = [get_color(i) for i in temp.columns]
+
+        # rename columns to remove units
+        temp.columns = [i.split(" (")[0] for i in temp.columns]
+
+        if ax is None:
+            ax = plt.gca()
+
+        inner_wedge, _ = ax.pie(
+            vals.flatten(),
+            radius=1 - size,
+            wedgeprops={"width": 0.66, "edgecolor": "w", "linewidth": 0},
+            startangle=90,
+            counterclock=False,
+            colors=inner_colors,
+        )
+        _, outer_txt = ax.pie(
+            vals.sum(axis=1),
+            radius=1,
+            wedgeprops={"width": size, "edgecolor": "w", "linewidth": 0.5},
+            startangle=90,
+            counterclock=False,
+            colors=["grey"],
+        )
+        for n, (name, vals) in enumerate(temp.iterrows()):
+            total_prop = vals.sum() / temp.sum().sum()
+            if total_prop > 0.02:
+                outer_txt[n].set_text(f"{name}\n{total_prop:0.1%}")
+                outer_txt[n].set_fontsize("xx-small")
+
+        if legend:
+            ax.legend(
+                inner_wedge[: len(temp.columns)],
+                temp.columns,
+                loc="upper left",
+                bbox_to_anchor=(1.02, 1),
+                ncols=1,
             )
 
-        return pd.concat(res, axis=1, keys=[typ.identifier for typ in self.typologies])
+        ax.set_title(
+            f"{self.identifier} - Energy Consumption\n{describe_analysis_period(analysis_period)}\n{temp.sum().sum() / 1000:,.0f}MWh"
+        )
+
+        return ax
+
+    # def run_everything(self) -> None:
+    #     """Run all methods and return a DataFrame with all the data."""
+        
+    #     _ = self._all_data()
+
+    #     # create individual plots per typology
+    #     with concurrent.futures.ProcessPoolExecutor() as executor:
+    #         futures = [
+    #             executor.submit(
+    #                 obj.run_everything,
+    #                 self.simulation_directory,
+    #             )
+    #             for obj in self.typologies
+    #         ]
+    #         _ = [future.result() for future in futures]
+
+    #     # create plots for the masterplan
+    #     for legend in [True, False]:
+    #         # PIE DISTRIBUTION #
+    #         fig, ax = plt.subplots(1, 1, figsize=FIGSIZE_SQUARE)
+    #         self.plot_pie_distribution(ax=ax, legend=legend)
+    #         plt.savefig(self.simulation_directory / f"fig_diurnal{'' if legend else '_nolegend'}.png", bbox_inches="tight", transparent=True, dpi=300)
+    #         plt.close(fig)
+
+    #         # ANNUAL MONTHLY #
+    #         fig, ax = plt.subplots(1, 1, figsize=FIGSIZE_RECTANGLE)
+    #         self.plot_annual_monthly(ax=ax, label=True, legend=legend)
+    #         plt.savefig(self.simulation_directory / f"fig_annual_monthly{'' if legend else '_nolegend'}.png", bbox_inches="tight", transparent=True, dpi=300)
+    #         plt.close(fig)
+
+    #         # PIE #
+    #         fig, ax = plt.subplots(1, 1, figsize=FIGSIZE_SQUARE)
+    #         self.plot_pie(ax=ax, label=True, legend=legend)
+    #         plt.savefig(self.simulation_directory / f"fig_pie{'' if legend else '_nolegend'}.png", bbox_inches="tight", transparent=True, dpi=300)
+    #         plt.close(fig)
+
+
+def create_all_typologies(epw_file: Path | str) -> Masterplan:
+
+    def run(bt: BuildingType, vt: Vintage, epw_file: Path) -> Typology:
+        return Typology.from_building_type(
+            building_type=bt,
+            total_area=1000,
+            epw_file=epw_file,
+            identifier=f"{bt.value}.{vt.value}",
+            vintage=vt,
+            rotation=0,
+            terrain=TerrainType.URBAN,
+        )
+
+    iterations = product(*[BuildingType, Vintage, [epw_file]])
+
+    # create all combinations of BuildingType and Vintage
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        results = list(tqdm(executor.map(run, *iterations), total=len(iterations)))
+
+    # return Masterplan(identifier="AllTypologies", typologies=typologies)
