@@ -1,3 +1,8 @@
+"""
+A module containing the definition of a Typology describing the 
+configuration of a building type within a masterplan.
+"""
+
 # region: IMPORTS
 # pylint: disable=E0401
 
@@ -19,27 +24,27 @@ from honeybee_energy.hvac.idealair import IdealAirSystem
 from honeybee_energy.internalmass import InternalMass
 from honeybee_energy.lib.scheduletypelimits import humidity, temperature
 from honeybee_energy.programtype import ProgramType
-from honeybee_energy.result.loadbalance import LoadBalance, SQLiteResult
+from honeybee_energy.result.loadbalance import SQLiteResult
 from honeybee_energy.run import run_idf, run_osw, to_openstudio_osw
 from honeybee_energy.schedule.fixedinterval import ScheduleFixedInterval
-from honeybee_energy.shw import SHWSystem
 from honeybee_energy.simulation.parameter import (RunPeriod, ShadowCalculation,
                                                   SimulationControl,
                                                   SimulationOutput,
                                                   SimulationParameter,
                                                   SizingParameter)
 from ladybug.analysisperiod import AnalysisPeriod
-from ladybug.datacollection import HourlyContinuousCollection
+from ladybug.datacollection import Header, HourlyContinuousCollection
+from ladybug.datatype.energy import Energy, EnergyIntensity
+from ladybug.datatype.energyflux import EnergyFlux
+from ladybug.datatype.volumeflowrate import VolumeFlowRate
 from ladybug_geometry.geometry2d import Point2D, Polygon2D, Vector2D
 from ladybug_geometry.geometry3d import (Face3D, LineSegment3D, Point3D,
                                          Vector3D)
-from pydantic import BaseModel, Field, root_validator
-from sklearn.linear_model import LinearRegression
+from pydantic import BaseModel, Field, root_validator  # pylint: disable=E0611
 
-from .config import DATA_PATH, FIGSIZE_RECTANGLE, FIGSIZE_SQUARE, INDEX, logger
+from .config import INDEX, logger
 from .enums import (EPW, BuildingType, ConstructionType, EconomizerType,
-                    LiftEnergyEfficiency, LiftUsageIntensity, TerrainType,
-                    Vintage, default_construction_type,
+                    TerrainType, Vintage, default_construction_type,
                     default_constructionset, default_context_shade_distance,
                     default_cooling_eer, default_daylight_dimming,
                     default_demand_controlled_ventilation,
@@ -49,20 +54,21 @@ from .enums import (EPW, BuildingType, ConstructionType, EconomizerType,
                     default_hr_effectiveness, default_number_of_floors,
                     default_program_type, default_pump_power,
                     default_skylight_ratio)
-from .lifts import (al_sharif_1996, approximate_lift_energy_demand,
-                    simple_estimate, simple_estimate_from_storeys)
 from .plot import diurnal, duration_curve, pie, stacked_bar
-from .util import (annual_eui, collection_to_series, construction_sri,
+from .util import (aggregate_collection, annual_eui, collection_from_series,
+                   collection_to_series, construction_sri,
                    describe_analysis_period, estimate_sri_properties,
-                   face_orientation, face_result, get_unit, load_balance,
-                   random_id, room_comfort_result, room_energy_result)
+                   eui_from_sql, face_orientation, face_result, get_unit,
+                   load_balance, occupancy_from_program,
+                   occupancy_schedule_from_program, random_id,
+                   room_comfort_result, room_energy_result)
 
 # pylint: enable=E0401
 # endregion: IMPORTS
 
 ORIENTATIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
-ROOT_DIRECTORY = Path(hb_folders.default_simulation_folder)
-RELOAD = True
+DEFAULT_MASTERPLAN_IDENTIFIER = "UnnamedMasterplan"
+DEFAULT_SIMULATION_DIRECTORY = Path(hb_folders.default_simulation_folder)
 
 
 class Typology(BaseModel):
@@ -413,10 +419,22 @@ class Typology(BaseModel):
     )
     fan_power: float = Field(description="The fan power (W/l/s).", ge=0, unit="W/l/s")
     pump_power: float = Field(description="The pump power (W/l/s).", ge=0, unit="W/l/s")
+    # META
+    metadata: dict = Field(
+        description="Any additional metadata to store with the typology - useful for sorting and grouping later.",
+        unit="dict",
+    )
+    masterplan_identifier: str = Field(
+        description="The name of the masterplan this typology is associated with.",
+        unit="str",
+        default=DEFAULT_MASTERPLAN_IDENTIFIER,
+    )
     # endregion: ATTRIBUTES
 
+    # region: DUNDER
+
     def __str__(self) -> str:
-        return f"{self.__class__.__name__}({self.identifier})"
+        return f"{self.__class__.__name__}({self.masterplan_identifier}::{self.identifier})"
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -432,19 +450,9 @@ class Typology(BaseModel):
                     return False
         return True
 
-    def basic_summary(self) -> str:
-        """Return a basic summary of the typology."""
-        return "\n".join(
-            [
-                f"{self.identifier} - {self.building_type} - {self.vintage}",
-                f"Total GFA: {self.total_area} m2",
-                f"Typical building GFA: {self.typical_building_gfa} m2",
-                f"Number of buildings: {self._number_of_buildings()}",
-                f"Typical storeys: {self.average_num_floors}",
-            ]
-        )
+    # endregion: DUNDER
 
-    # pylint: disable=no-self-argument
+    # pylint: disable=no-self-argument,too-many-branches
     @root_validator(pre=True)
     def validate_atts(cls, values):
         """Validate the attributes, ensuring that certain values work with each other."""
@@ -452,8 +460,32 @@ class Typology(BaseModel):
         identifier = values.get("identifier")
         valid_string(identifier)
 
+        masterplan_identifier = values.get("masterplan_identifier")
+        valid_string(masterplan_identifier)
+
         epw_file = Path(values.get("epw_file"))
         assert epw_file.exists(), f"{epw_file.absolute()} file does not exist."
+
+        metadata = values.get("metadata")
+        if pd.isnull(metadata):
+            metadata = {}
+        elif isinstance(metadata, str):
+            try:
+                metadata = dict(
+                    (k.strip(), v.strip())
+                    for k, v in (item.split(":") for item in metadata.split(","))
+                )
+            except ValueError:
+                raise ValueError(
+                    f"Metadata must be a dictionary or a comma-separated string of key:value pairs."
+                )
+        for k, v in metadata.items():
+            if not isinstance(k, str):
+                raise ValueError(f"Metadata key {k} must be a string.")
+            if not isinstance(v, (str, int, float, bool)):
+                raise ValueError(
+                    f"Metadata value {v} must be a string, int, float or bool."
+                )
 
         if values["heating_setpoint"] < values["heating_setback"]:
             raise ValueError(
@@ -497,7 +529,9 @@ class Typology(BaseModel):
 
         return values
 
-    # pylint: enable=no-self-argument
+    # pylint: enable=no-self-argument,too-many-branches
+
+    # region: CLASSMETHODS
 
     @classmethod
     def random(cls, epw_file: Path = None, seed: int = None) -> "Typology":
@@ -508,6 +542,7 @@ class Typology(BaseModel):
         if epw_file is None:
             # reference the test EPW here ... this is bad practice, but meh
             epw_file = Path(__file__).absolute().parent / "test" / "test.epw"
+            logger.info(f"{__class__.__name__} - Using default EPW: {epw_file}")
 
         return cls(
             identifier=random_id(seed),
@@ -586,6 +621,13 @@ class Typology(BaseModel):
             cooling_eer=np.random.uniform(0, 13),
             fan_power=np.random.uniform(0, 5),
             pump_power=np.random.uniform(0, 5),
+            # #
+            metadata={
+                "random": True,
+                "seed": seed,
+                "category_example": np.random.choice(["A", "B", "C"]),
+            },
+            masterplan_identifier="RandomMasterplan",
         )
 
     @classmethod
@@ -598,6 +640,8 @@ class Typology(BaseModel):
         vintage: Vintage | str = None,
         rotation: float = None,
         terrain: TerrainType | str = None,
+        metadata: dict = None,
+        masterplan_identifier: str = None,
     ) -> "Typology":
         """Create this object based on defaults for the given building type.
 
@@ -609,6 +653,8 @@ class Typology(BaseModel):
             vintage (Vintage, optional): The vintage of the building. Defaults to ASHRAE_901_2019.
             rotation (float, optional): The rotation of the building. Defaults to 0.
             terrain (TerrainType, optional): The terrain type. Defaults to TerrainType.URBAN.
+            metadata (dict, optional): Any additional metadata to store with the typology. Defaults to None.
+            masterplan_identifier (str, optional): The name of the masterplan this typology is associated with. Defaults to MASTERPLAN_IDENTIFIER.
 
         Returns:
             Typology: The typology object.
@@ -620,6 +666,12 @@ class Typology(BaseModel):
             identifier = building_type.value
             logger.info(
                 f"{__class__.__name__} - Using default identifier: {identifier}"
+            )
+
+        if masterplan_identifier is None:
+            masterplan_identifier = DEFAULT_MASTERPLAN_IDENTIFIER
+            logger.info(
+                f"{__class__.__name__} - Using default masterplan_identifier: {masterplan_identifier}"
             )
 
         if isinstance(building_type, str):
@@ -641,6 +693,10 @@ class Typology(BaseModel):
         elif isinstance(terrain, str):
             terrain = TerrainType(terrain)
 
+        if metadata is None:
+            metadata = {}
+            logger.info(f"{__class__.__name__} - Using default metadata: {metadata}")
+
         d = {
             "identifier": building_type.value if identifier is None else identifier,
             "total_area": total_area,
@@ -649,6 +705,8 @@ class Typology(BaseModel):
             "vintage": vintage,
             "rotation": rotation,
             "terrain": terrain,
+            "metadata": metadata,
+            "masterplan_identifier": masterplan_identifier,
         }
 
         # region: DEFAULT_FORM
@@ -874,6 +932,28 @@ class Typology(BaseModel):
             if isinstance(d["economizer_type"], str):
                 d["economizer_type"] = EconomizerType(str(d["economizer_type"]))
 
+        # handle conversion of other remaining fields
+        if d["metadata"] is not None:
+            if pd.isnull(d["metadata"]):
+                d["metadata"] = {}
+            if isinstance(d["metadata"], str):
+                try:
+                    d["metadata"] = dict(
+                        (k.strip(), v.strip())
+                        for k, v in (
+                            item.split(":") for item in d["metadata"].split(",")
+                        )
+                    )
+                except ValueError:
+                    raise ValueError(
+                        f"Metadata must be a dictionary or a comma-separated string of key:value pairs."
+                    )
+            for k, v in d["metadata"].items():
+                if not all([isinstance(k, str), isinstance(v, str)]):
+                    raise ValueError(
+                        f"Metadata key {k} and value {v} must both be strings."
+                    )
+
         # create the default typology
         default_typology = cls.from_building_type(
             building_type=d["building_type"],
@@ -883,6 +963,8 @@ class Typology(BaseModel):
             vintage=d["vintage"],
             rotation=d["rotation"],
             terrain=d["terrain"],
+            metadata=d["metadata"],
+            masterplan_identifier=d["masterplan_identifier"],
         )
 
         # overwrite any nulls with default values
@@ -893,6 +975,51 @@ class Typology(BaseModel):
                 d[k] = val
 
         return cls.parse_obj(d)
+
+    def series(self) -> pd.Series:
+        """Return the typology as a pandas Series."""
+        return pd.Series(self.dict())
+
+    @classmethod
+    def from_series(cls, s: pd.Series, use_defaults: bool = True) -> "Typology":
+        """Create a typology from a pandas Series, with the optional filling of missing data using default values.
+
+        Args:
+            s (pd.Series): The series to create the typology from.
+            use_defaults (bool, optional): Whether to fill missing data with default values. Defaults to True.
+
+        Returns:
+            Typology: The typology object.
+        """
+
+        # TODO fix validation from Series here
+        d = s.to_dict()
+        print(d)
+
+        return cls.from_dict(d, use_defaults)
+
+    # endregion: CLASSMETHODS
+
+    # region: PROPERTIES
+
+    @property
+    def basic_summary(self) -> str:
+        """Return a basic summary of the typology."""
+
+        print(
+            "\n".join(
+                [
+                    f"masterplan_identifier = {self.masterplan_identifier}",
+                    f"identifier = {self.identifier}",
+                    f"building_type = {self.building_type}",
+                    f"vintage = {self.vintage}",
+                    f"total_area = {self.total_area}",
+                    f"typical_gfa = {self.typical_gfa}",
+                    f"number_of_buildings = {self.number_of_buildings}",
+                    f"average_num_floors = {self.average_num_floors}",
+                ]
+            )
+        )
 
     @property
     def epw(self) -> EPW:
@@ -943,7 +1070,8 @@ class Typology(BaseModel):
 
     @property
     def _window_shgcs(self) -> list[float]:
-        """The Solar Heat Gain Coefficients of the windows in each orientation."""
+        """The Solar Heat Gain Coefficients of the windows in each cardinal
+        orientation."""
         return [
             self.window_shgc_N,
             self.window_shgc_NE,
@@ -956,9 +1084,90 @@ class Typology(BaseModel):
         ]
 
     @property
-    def typical_building_gfa(self) -> float:
+    def typical_gfa(self) -> float:
         """Get the typical gross floor area for a building of this typology."""
-        return self.total_area / self._number_of_buildings()
+        return self.total_area / self.number_of_buildings
+
+    @property
+    def building_height(self) -> float:
+        """Get the typical height for an individual building."""
+        return self.average_num_floors * self.average_floor_height
+
+    @property
+    def number_of_buildings(self) -> float:
+        """Return the number of buildings this Typology represents"""
+        return self.total_area / (self.average_footprint_area * self.average_num_floors)
+
+    @property
+    def _simulation_directory(self) -> Path:
+        """Lightweight helper method to get the target directory for the
+        typology simulation results."""
+        return (
+            DEFAULT_SIMULATION_DIRECTORY / self.masterplan_identifier / self.identifier
+        )
+
+    @property
+    def _openstudio_directory(self) -> Path:
+        """Lightweight helper method to get the OpenStudio directory for the
+        typology simulation results."""
+        return self._simulation_directory / "openstudio"
+
+    @property
+    def _sql_file(self) -> Path:
+        """Lightweight helper method to get the SQL file for the typology
+        simulation results."""
+        return self._openstudio_directory / "run/eplusout.sql"
+
+    @property
+    def _osw_file(self) -> Path:
+        """Lightweight helper method to get the OSW file for the typology
+        simulation results."""
+        return self._openstudio_directory / "workflow.osw"
+
+    @property
+    def _hbjson_file(self) -> Path:
+        """Lightweight helper method to get the HBJSON file for the typology
+        simulation results."""
+        return self._openstudio_directory / f"{self.identifier}.hbjson"
+
+    @property
+    def _config_file(self) -> Path:
+        """Lightweight helper method to get the config file for the typology
+        simulation results."""
+        return self._simulation_directory / "mped_config.json"
+
+    def _sql_file_exists(self) -> bool:
+        """Check if the sql file containing results for this typology already
+        exist.
+
+        Returns:
+            bool:
+                True if results exist, False otherwise.
+        """
+
+        # check config is the same
+        if not self._config_file.exists():
+            return False
+        if Typology.parse_file(self._config_file) != self:
+            return False
+
+        # check EPW is the same
+        if not self._osw_file.exists():
+            return False
+        with open(self._osw_file, "r", encoding="utf-8") as fp:
+            old_epw_file = Path(json.load(fp)["weather_file"])
+        if old_epw_file.name != self.epw_file.name:
+            return False
+
+        # check SQL file exists
+        if self._sql_file.exists():
+            return True
+
+        return False
+
+    # endregion: PROPERTIES
+
+    # region: MODEL_METHODS
 
     def _program_type(self) -> ProgramType:
         """Create a programtype from this object."""
@@ -1052,6 +1261,66 @@ class Typology(BaseModel):
 
         return program
 
+    def _internal_gains(
+        self, as_dataframe: bool = False
+    ) -> HourlyContinuousCollection | pd.DataFrame:
+        """Get the internal gains for the typology."""
+
+        program = self._program_type()
+
+        people_gain = (
+            collection_to_series(occupancy_schedule_from_program(program=program))
+            * collection_to_series(program.people.activity_schedule.data_collection())
+            * program.people.people_per_area
+        ).rename("Energy Intensity (Wh/m2)")
+
+        lighting_gain = (
+            collection_to_series(program.lighting.schedule.data_collection())
+            * program.lighting.watts_per_area
+        ).rename("Energy Intensity (Wh/m2)")
+
+        electric_equipment_gain = (
+            collection_to_series(program.electric_equipment.schedule.data_collection())
+            * program.electric_equipment.watts_per_area
+        ).rename("Energy Intensity (Wh/m2)")
+
+        if as_dataframe:
+            return pd.concat(
+                [
+                    people_gain,
+                    lighting_gain,
+                    electric_equipment_gain,
+                ],
+                axis=1,
+                keys=["People (Wh/m2)", "Lighting (Wh/m2)", "Electric Equipment (Wh/m2)"],
+            )
+
+        return {
+            "people": collection_from_series(people_gain),
+            "lighting": collection_from_series(lighting_gain),
+            "electric_equipment": collection_from_series(electric_equipment_gain),
+        }
+
+    def _population(self, per_building: bool = True) -> pd.Series:
+        """Get the number of occpants within this typology, either per
+        building of per the entire typology.
+
+        Args:
+            per_building (bool, optional): Whether to return the number of
+                occupants per building or for the entire typology. Defaults to
+                True.
+
+        Returns:
+            pd.Series: The number of occupants.
+        """
+        occupancy_profile = (
+            collection_to_series(occupancy_schedule_from_program(self._program_type()))
+            * self.occupant_density
+        )  # person/m2
+        if per_building:
+            return occupancy_profile * self.typical_gfa
+        return occupancy_profile * self.total_area
+
     def _ideal_air(self) -> IdealAirSystem:
         """Return the ideal air system associated with the system."""
 
@@ -1062,11 +1331,6 @@ class Typology(BaseModel):
             sensible_heat_recovery=self.sensible_heat_recovery_effectiveness,
             latent_heat_recovery=self.latent_heat_recovery_effectiveness,
         )
-
-    def _building_height(self) -> float:
-        """Get the typical height for an individual building."""
-
-        return self.average_num_floors * self.average_floor_height
 
     def _footprint(self) -> Polygon2D:
         """Create the footprint for the building."""
@@ -1138,7 +1402,7 @@ class Typology(BaseModel):
         context_distance = default_context_shade_distance(self.terrain)
         shades = []
         if context_distance < 500:
-            context_height = self._building_height() * 0.75
+            context_height = self.building_height * 0.75
             for segment in self._footprint().offset(-context_distance).segments:
                 _shd = Shade(
                     identifier="context_shade",
@@ -1351,98 +1615,11 @@ class Typology(BaseModel):
 
         return model
 
-    def _number_of_buildings(self) -> float:
-        """Return the number of buildings this Typology represents"""
-        return self.total_area / (self.average_footprint_area * self.average_num_floors)
+    # endregion: MODEL_METHODS
 
-    def _occupancy_schedule(self) -> pd.Series:
-        """Get the occupancy schedule for the building type."""
-        program = self._program_type()
+    # region: SIMULATION_METHODS
 
-        if program.people is None:
-            values = np.zeros(8760)
-        else:
-            values = program.people.occupancy_schedule.data_collection().values
-
-        return pd.Series(
-            values,
-            index=pd.to_datetime(AnalysisPeriod().datetimes),
-            name="Occupancy",
-        )
-
-    def _occupants(self, per_building: bool = False) -> pd.Series:
-        """Get the number of occupants in the building type."""
-        return (
-            self._occupancy_schedule()
-            * self.occupant_density
-            * (self.typical_building_gfa if per_building else self.total_area)
-        )
-
-    def _target_dir(self, directory: Path = ROOT_DIRECTORY) -> Path:
-        """Lightweight helper method to get the target directory for the typology simulation results."""
-        return Path(directory) / self.identifier
-
-    def _openstudio_dir(self, directory: Path = ROOT_DIRECTORY) -> Path:
-        """Lightweight helper method to get the OpenStudio directory for the typology simulation results."""
-        return self._target_dir(directory) / "openstudio"
-
-    def _sql_file(self, directory: Path = ROOT_DIRECTORY) -> Path:
-        """Lightweight helper method to get the SQL file for the typology simulation results."""
-        return self._openstudio_dir(directory) / "run" / "eplusout.sql"
-
-    def _osw_file(self, directory: Path = ROOT_DIRECTORY) -> Path:
-        """Lightweight helper method to get the OSW file for the typology simulation results."""
-        return self._openstudio_dir(directory) / "workflow.osw"
-
-    def _config_file(self, directory: Path = ROOT_DIRECTORY) -> Path:
-        """Lightweight helper method to get the config file for the typology simulation results."""
-        return self._target_dir(directory) / "mped_config.json"
-
-    def _results_exist(self, directory: Path = ROOT_DIRECTORY) -> bool:
-        """Check if the results for the typology already exist.
-
-        Args:
-            directory (Path):
-                The directory to check for results in. Defaults to the ladybug simulation directory.
-
-        Returns:
-            bool:
-                True if results exist, False otherwise.
-        """
-        return self._sql_file_exists(directory=Path(directory))
-
-    def _sql_file_exists(self, directory: Path = ROOT_DIRECTORY) -> bool:
-        """Check if the results for the typology already exist.
-
-        Args:
-            directory (Path):
-                The directory to check for results in. Defaults to the ladybug simulation directory.
-
-        Returns:
-            bool:
-                True if results exist, False otherwise.
-        """
-
-        directory = Path(directory)
-
-        config_file = self._config_file(directory=directory)
-        if not config_file.exists():
-            return False
-        if Typology.parse_file(config_file) != self:
-            return False
-        osw_file = self._osw_file(directory=directory)
-        if not osw_file.exists():
-            return False
-        with open(osw_file, "r", encoding="utf-8") as fp:
-            old_epw_file = Path(json.load(fp)["weather_file"])
-        if old_epw_file.name != self.epw_file.name:
-            return False
-        if self._sql_file(directory=directory).exists():
-            return True
-
-        return False
-
-    def _simulate(self, directory: Path = ROOT_DIRECTORY) -> pd.DataFrame:
+    def _simulate(self) -> pd.DataFrame:
         """Simulate the typology for a given EPW file and return the results in a DataFrame.
 
         Args:
@@ -1455,9 +1632,6 @@ class Typology(BaseModel):
         """
 
         # TODO - replace with purpose specific simulate method, rather than having all the functionality within this function
-        # validate inputs
-        if Path(directory).is_file():
-            raise ValueError("Target directory is a file and must be a directory.")
 
         # create model
         logger.disabled = True
@@ -1465,26 +1639,24 @@ class Typology(BaseModel):
         logger.disabled = False
 
         # run simulation if it hasn't already been run
-        if not self._sql_file_exists(directory):
+        if not self._sql_file_exists():
 
             # run simulation
             logger.info(f"{self} - Simulating results")
 
             # remove old files in target directory just in case
-            for f in self._target_dir(directory=directory).glob("*"):
+            for f in self._simulation_directory.glob("*"):
                 if f.is_file():
                     f.unlink()
 
-            self._openstudio_dir(directory=directory).mkdir(parents=True, exist_ok=True)
+            self._openstudio_directory.mkdir(parents=True, exist_ok=True)
 
             # write config file
-            with open(
-                self._config_file(directory=directory), "w", encoding="utf-8"
-            ) as fp:
+            with open(self._config_file, "w", encoding="utf-8") as fp:
                 fp.write(self.json(indent=4))
 
             # write model to target directory to reference in simulation
-            model.to_hbjson(folder=self._openstudio_dir(directory=directory))
+            model.to_hbjson(folder=self._openstudio_directory)
 
             # set which outputs are going to be returned
             simulation_control = SimulationControl(
@@ -1540,23 +1712,20 @@ class Typology(BaseModel):
                 sizing_parameter=sizing_parameter,
             )
 
-            sim_par_file = (
-                self._openstudio_dir(directory=directory) / "simulation_parameters.json"
-            )
+            sim_par_file = self._openstudio_directory / "simulation_parameters.json"
             with open(sim_par_file, "w", encoding="utf-8") as fp:
                 json.dump(simulation_parameter.to_dict(), fp)
 
             osw = to_openstudio_osw(
-                self._openstudio_dir(directory=directory).as_posix(),
-                (
-                    self._openstudio_dir(directory=directory)
-                    / f"{self.identifier}.hbjson"
-                ).as_posix(),
+                self._openstudio_directory.as_posix(),
+                self._hbjson_file.as_posix(),
                 sim_par_file.as_posix(),
                 additional_measures=None,
                 epw_file=self.epw_file.as_posix(),
             )
             _, idf = run_osw(osw, silent=True)
+
+            # TODO - check in here that all gains are being represented in teh IDF< and add them if not
 
             _, _, _, _, _ = run_idf(
                 idf_file_path=idf,
@@ -1565,748 +1734,540 @@ class Typology(BaseModel):
                 silent=True,
             )
 
+        else:
+            logger.info(f"{self} - Existing results found")
+
         return None
 
-    def load_balance(
-        self,
-        directory: Path = ROOT_DIRECTORY,
-        normalised: bool = False,
-        single_building: bool = False,
-    ) -> pd.DataFrame:
-        """Load the load balance results from the simulation.
+    # endregion: SIMULATION_METHODS
+
+    # region: RESULTS_LOADING
+
+    def _sql_result(self) -> SQLiteResult:
+        """Return the SQLite result of the simulation."""
+
+        if not self._sql_file_exists():
+            self._simulate()
+
+        return SQLiteResult(self._sql_file.as_posix())
+
+    def space_conditions(
+        self, as_dataframe: bool = False
+    ) -> dict[str, HourlyContinuousCollection] | pd.DataFrame:
+        """Return the space conditions of the simulation.
 
         Args:
-            directory (Path):
-                The directory to save the results in.
+            dataframe (bool, optional):
+                Whether to return the results as a DataFrame. Defaults to False.
 
         Returns:
-            pd.DataFrame:
-                The load balance results in a pandas DataFrame.
-
-        Notes:
-            The file saved to disk will always be stored in kWh/m2, but the
-            DataFrame will be returned in kWh if normalised is False.
-            Also, if normalised is false and single building is True, then the
-            results will be multiplied by the number of buildings.
+            dict[str, HourlyContinuousCollection] | pd.DataFrame:
+                The space conditions of the simulation.
         """
+        sql_obj = self._sql_result()
 
-        _sql = self._sql_file(directory=directory)
-        if not _sql.exists():
-            raise FileNotFoundError(
-                "No simulation results found. Try running it first :)"
+        variables = {
+            "Space Temperature (C)": "Zone Mean Air Temperature",
+            "Space Mean Radiant Temperature (C)": "Zone Mean Radiant Temperature",
+            "Space Relative Humidity (%)": "Zone Air Relative Humidity",
+            "Space Heating Setpoint Temperature (C)": "Zone Thermostat Heating Setpoint Temperature",
+            "Space Cooling Setpoint Temperature (C)": "Zone Thermostat Cooling Setpoint Temperature",
+        }
+        d = {}
+        for k, v in variables.items():
+            collections = sql_obj.data_collections_by_output_name(v)
+            d[k] = aggregate_collection(collections=collections, agg="mean")
+
+        if as_dataframe:
+            df = pd.concat(
+                [collection_to_series(v) for k, v in d.items()], axis=1, keys=d.keys()
             )
+            return df
 
-        pth = (
-            Path(directory)
-            / self.identifier
-            / f"data_{inspect.stack()[0][3]}_normalised.csv"
+        return d
+
+    def ventilation_flowrate(
+        self, as_series: bool = False
+    ) -> HourlyContinuousCollection | pd.Series:
+        """Helper method to provide the ventilation flowrate for the typology.
+
+        Args:
+            as_series (bool, optional):
+                Return the results as a pandas Series. Defaults to False.
+
+        Returns:
+            HourlyContinuousCollection | pd.Series:
+                The ventilation flowrate in L/s-m2.
+        """
+
+        sql_obj = self._sql_result()
+
+        # get total volume of air being delivered to single building model
+        supply_air_flowrate = aggregate_collection(
+            collections=sql_obj.data_collections_by_output_name(
+                "Zone Mechanical Ventilation Current Density Volume Flow Rate"
+            ),
+            agg="sum",
+        ).to_unit("L/s")
+        supply_air_flowrate_series = collection_to_series(supply_air_flowrate)
+
+        # normalise by area
+        supply_air_flowrate_series /= self.typical_gfa
+        supply_air_flowrate_series.rename(
+            "Ventilation Flowrate Intensity (L/s-m2)", inplace=True
         )
-        if all([RELOAD, pth.exists()]):
-            # reload existing results that were previously generated
-            logger.info(f"{self} - Reloading load balance data")
-            df = pd.read_csv(pth, index_col=0, parse_dates=True, header=0)
-        else:
-            # process results if they don't already exist
-            logger.info(f"{self} - Creating load balance data")
-            (
-                cooling,
-                heating,
-                lighting,
-                electric_equip,
-                gas_equip,
-                process,
-                hot_water,
-                _,
-                _,
-                people_gain,
-                solar_gain,
-                infiltration_load,
-                mech_vent_load,
-                nat_vent_load,
-            ) = room_energy_result(_sql)
-            _, _, face_energy_flow = face_result(_sql)
-            _, _, _, norm_bal_stor = load_balance(
-                [self._model()],
-                cooling,
-                heating,
-                lighting,
-                electric_equip,
-                gas_equip,
-                process,
-                hot_water,
-                people_gain,
-                solar_gain,
-                infiltration_load,
-                mech_vent_load,
-                nat_vent_load,
-                face_energy_flow,
+
+        if not as_series:
+            return collection_from_series(supply_air_flowrate_series)
+
+        return supply_air_flowrate_series
+
+        # convert m3/s to l/s
+        supply_air_ls = supply_air_flowrate * 1000
+
+        # rename
+        supply_air_ls.name = "Volume Flow Rate (l/s)"
+
+        return supply_air_ls
+
+    def external_conditions(
+        self, as_dataframe: bool = False
+    ) -> dict[str, HourlyContinuousCollection] | pd.DataFrame:
+        """Return the external conditions of the simulation.
+
+        Args:
+            dataframe (bool, optional):
+                Whether to return the results as a DataFrame. Defaults to False.
+
+        Returns:
+            dict[str, HourlyContinuousCollection] | pd.DataFrame:
+                The external conditions of the simulation.
+        """
+        d = {
+            "External Dry Bulb Temperature (C)": self.epw.dry_bulb_temperature,
+            "External Relative Humidity (%)": self.epw.relative_humidity,
+        }
+
+        if as_dataframe:
+            df = pd.concat(
+                [collection_to_series(v) for k, v in d.items()], axis=1, keys=d.keys()
             )
-            d = []
-            for collection in norm_bal_stor:
-                collection: HourlyContinuousCollection
-                s = collection_to_series(collection)
-                s.name = f"Load Balance {collection.header.metadata['type']} ({collection.header.unit})"
-                d.append(s)
-            df = pd.concat(d, axis=1)
-            df.to_csv(pth)
+            return df
 
-        # convert to de-normalised if requested
-        if not normalised:
-            df *= self.typical_building_gfa
-            df.columns = [i.replace("(kWh/m2)", "(kWh)") for i in df.columns]
+        return d
 
-        # multiply by number of buildings if requested
-        if not single_building:
-            if not normalised:
-                df *= self._number_of_buildings()
-
-        return df
-
-    def sql_results(self, directory: Path = ROOT_DIRECTORY) -> SQLiteResult:
-        """Return the SQLite results of the simulation.
-        
-        Args:
-            directory (Path):
-                The directory where results can be found.
-        
-        Returns:
-            SQLiteResult:
-                The SQLite results of the simulation.
-        """
-        _sql = self._sql_file(directory=directory)
-        if not _sql.exists():
-            raise FileNotFoundError("No simulation results found. Try running the simulation first :)")
-        
-        return SQLiteResult(_sql.as_posix())
-
-    def space_conditions(self, directory: Path = ROOT_DIRECTORY) -> pd.DataFrame:
-        """Get the room conditions of the simulated typology.
+    def eui_result(self, as_series: bool = False) -> dict[str, float] | pd.Series:
+        """Return the EUI results of the simulation, in units of kWh/m2/year.
 
         Args:
-            epw (EPW):
-                The EPW file to use for the simulation.
-            directory (Path):
-                The directory to save the results in.
+            as_series (bool, optional):
+                Whether to return the results as a pandas Series. Defaults to False.
 
         Returns:
-            pd.DataFrame:
-                The room conditions of the typology.
+            dict[str, float] | pd.Series:
+                The EUI results of the simulation.
         """
 
-        pth = Path(directory) / self.identifier / f"data_{inspect.stack()[0][3]}.csv"
-        if all([RELOAD, pth.exists()]):
-            logger.info(f"{self} - Reloading space condition data")
-            return pd.read_csv(pth, index_col=0, header=0, parse_dates=True)
-        
-        sql_obj = self.sql_results(directory=directory)
-        _, air_temp, rad_temp, rel_humidity, _, _ = room_comfort_result(sql_obj.file_path)
+        if not self._sql_file_exists():
+            self._simulate()
 
-        # get averages
-        dbt = (
-            pd.concat([collection_to_series(i) for i in air_temp], axis=1)
-            .mean(axis=1)
-            .rename("Dry Bulb Temperature (C)")
-        )
-        mrt = (
-            pd.concat([collection_to_series(i) for i in rad_temp], axis=1)
-            .mean(axis=1)
-            .rename("Mean Radiant Temperature (C)")
-        )
-        rh = (
-            pd.concat([collection_to_series(i) for i in rel_humidity], axis=1)
-            .mean(axis=1)
-            .rename("Relative Humidity (%)")
-        )
-        htg_setpt = collection_to_series(
-            sql_obj.data_collections_by_output_name(
-                "Zone Thermostat Heating Setpoint Temperature"
-            )[0]
-        ).rename("Heating Setpoint Temperature (C)")
-        clg_setpt = collection_to_series(
-            sql_obj.data_collections_by_output_name(
-                "Zone Thermostat Cooling Setpoint Temperature"
-            )[0]
-        ).rename("Cooling Setpoint Temperature (C)")
-        ach = collection_to_series(
-            sql_obj.data_collections_by_output_name(
-                "Zone Mechanical Ventilation Air Changes per Hour"
-            )[0]
-        ).rename("Air Changes per Hour")
-        df = pd.concat([rh, dbt, mrt, htg_setpt, clg_setpt, ach], axis=1)
-        logger.info(f"{self} - Creating space condition data")
-        df.to_csv(pth)
-        return df
+        results = eui_from_sql(self._sql_file.as_posix())["end_uses"]
 
-    def external_conditions(self) -> pd.DataFrame:
-        """Get the external conditions of the simulated typology.
+        # determine if results are all included, and include 0's if not
+        keys = [
+            "Cooling",
+            "Heating",
+            "Interior Lighting",
+            "Electric Equipment",
+            "Gas Equipment",
+            "Water Systems",
+        ]
+        for k in keys:
+            if k not in results:
+                results[k] = 0
 
-        Returns:
-            pd.DataFrame:
-                The external conditions of the typology.
-        """
+        if as_series:
+            return pd.Series(results, name="EUI (kWh/m2/year)")
 
-        df = pd.concat(
-            [
-                collection_to_series(self.epw.dry_bulb_temperature),
-                collection_to_series(self.epw.relative_humidity),
-            ],
-            axis=1,
-        )
+        return results
 
-        return df
-
-    def _cooling_energy_demand(
-        self,
-        directory: Path = ROOT_DIRECTORY,
-        normalised: bool = False,
-        single_building: bool = False,
-    ) -> pd.Series:
-        """Get the cooling energy demand of the typology.
+    def load_balance_result(
+        self, as_dataframe: bool = False, normalised=True
+    ) -> dict[str, HourlyContinuousCollection] | pd.DataFrame:
+        """Return the load balance results of the simulation.
 
         Args:
-            directory (Path, optional):
-                The directory where simulations results are stored. Defaults
-                to ROOT_DIRECTORY.
+            as_dataframe (bool, optional):
+                Whether to return the results as a pandas DataFrame. Defaults to False.
             normalised (bool, optional):
-                If True, then the results are normalised by the total area of the typology.
-            single_building (bool, optional):
-                If True, then the results are not multiplied by the number of buildings.
+                Whether to return the results in kWh/m2. Defaults to True.
 
         Returns:
-            pd.Series: A pandas Series of the hourly cooling energy demand (prior to applying system efficiency) in kWh.
+            dict[str, float]:
+                The load balance results, in the form of a dictionary, OR as a
+                DataFrame if requested.
         """
 
-        pth = Path(directory) / self.identifier / f"data_{inspect.stack()[0][3]}.csv"
-        if all([RELOAD, pth.exists()]):
-            # reload existing calculation
-            logger.info(f"{self} - Reloading cooling energy demand")
-            cooling_hourly = pd.read_csv(
-                pth, index_col=0, header=0, parse_dates=True
-            ).squeeze()
-        else:
-            # run calculation process
-            logger.info(f"{self} - Calculating cooling energy demand")
+        if not self._sql_file_exists():
+            self._simulate()
 
-            # get load balance outputs - normalised, in kWh/m2
-            load_balance_df = self.load_balance(
-                directory=directory, normalised=True, single_building=True
-            )
+        # obtain room energy results
+        (
+            cooling,
+            heating,
+            lighting,
+            electric_equip,
+            gas_equip,
+            process,
+            hot_water,
+            fan_electric,
+            pump_electric,
+            people_gain,
+            solar_gain,
+            infiltration_load,
+            mech_vent_load,
+            nat_vent_load,
+        ) = room_energy_result(self._sql_file.as_posix())
 
-            # get EUI outputs, which are also always normalised
-            eui_df = self.annual_eui(directory=directory)
+        # obtain face energy results
+        face_indoor_temp, face_outdoor_temp, face_energy_flow = face_result(
+            self._sql_file.as_posix()
+        )
 
-            # calculate and scale cooling load to eui to ensure consistency
-            try:
-                cooling_annual_kwhm2 = eui_df["Cooling"]
-                cooling_hourly = -load_balance_df["Load Balance Cooling (kWh/m2)"]
-                cooling_hourly = ((
-                    cooling_hourly / cooling_hourly.sum()
-                ) * cooling_annual_kwhm2)
-            except KeyError:
-                logger.warning(
-                    f"{self} - No cooling demand found. Returning zeros."
+        # calculate load balance
+        balance, balance_stor, norm_bal, norm_bal_stor = load_balance(
+            [self._model()],
+            cooling,
+            heating,
+            lighting,
+            electric_equip,
+            gas_equip,
+            process,
+            hot_water,
+            people_gain,
+            solar_gain,
+            infiltration_load,
+            mech_vent_load,
+            nat_vent_load,
+            face_energy_flow,
+        )
+
+        # create dict for load balance objects for easier referencing
+        d = {}
+        for collection in norm_bal_stor:
+            d[collection.header.metadata["type"]] = collection
+        for variable in [
+            "Heating",
+            "Solar",
+            "Service Hot Water",
+            "Gas Equipment",
+            "Electric Equipment",
+            "Lighting",
+            "People",
+            "Infiltration",
+            "Mechanical Ventilation",
+            "Opaque Conduction",
+            "Window Conduction",
+            "Cooling",
+            "Storage",
+        ]:
+            if variable not in d:
+                logger.info(
+                    f"{variable} not found in load balance results for {self.building_type}."
                 )
-                cooling_hourly = pd.Series([0] * len(load_balance_df.index), index=load_balance_df.index)
-            cooling_hourly.name = "Cooling (kWh/m2)"
+                d[variable] = list(d.values())[0].get_aligned_collection(0)
 
-            # save to file
-            cooling_hourly.to_csv(pth)
-
-        # convert to normalised if needed
         if not normalised:
-            cooling_hourly *= self.typical_building_gfa
-            cooling_hourly.name = cooling_hourly.name.replace("(kWh/m2)", "(kWh)")
+            for k, v in d.items():
+                d[k] = v.aggregate_by_area(area=self.typical_gfa, area_unit="m2")
 
-        # multiply by number of buildings if needed
-        if not single_building:
-            if not normalised:
-                cooling_hourly *= self._number_of_buildings()
-
-        return cooling_hourly
-
-    def _cooling_energy_consumption(
-        self,
-        directory: Path = ROOT_DIRECTORY,
-        normalised: bool = False,
-        single_building: bool = False,
-    ) -> pd.Series:
-        """Get the cooling energy consumption of the typology, including effects from equipment performance.
-
-        Args:
-            directory (Path, optional):
-                The directory where simulations results are stored. Defaults
-                to ROOT_DIRECTORY.
-            normalised (bool, optional):
-                If True, then the results are normalised by the total area of the typology.
-            single_building (bool, optional):
-                If True, then the results are not multiplied by the number of buildings.
-
-        Returns:
-            pd.Series:
-                The cooling energy consumption of the typology.
-        """
-
-        return (
-            self._cooling_energy_demand(
-                directory=directory,
-                normalised=normalised,
-                single_building=single_building,
+        if as_dataframe:
+            df = pd.concat(
+                [collection_to_series(v) for k, v in d.items()], axis=1, keys=d.keys()
             )
-            / self.cooling_eer
-        )
+            return df
 
-    def _heating_energy_demand(
-        self,
-        directory: Path = ROOT_DIRECTORY,
-        normalised: bool = False,
-        single_building: bool = False,
-    ) -> pd.Series:
-        """Get the heating energy demand of the typology.
+        return d
+
+    # endregion: RESULTS_LOADING
+
+    # region: RESULTS_PROCESSING
+
+    def cooling_energy_demand(
+        self, as_series: bool = False
+    ) -> HourlyContinuousCollection | pd.Series:
+        """Return the cooling energy demand of the simulation.
 
         Args:
-            directory (Path, optional):
-                The directory where simulations results are stored. Defaults
-                to ROOT_DIRECTORY.
-            normalised (bool, optional):
-                If True, then the results are normalised by the total area of the typology.
-            single_building (bool, optional):
-                If True, then the results are not multiplied by the number of buildings.
+            as_series (bool, optional):
+                Whether to return the results as a pandas Series. Defaults to False.
 
         Returns:
-            pd.Series: A pandas Series of the hourly heating energy demand (prior to applying system efficiency) in kWh.
+            HourlyContinuousCollection | pd.Series:
+                The cooling energy demand of the building typology.
         """
 
-        pth = Path(directory) / self.identifier / f"data_{inspect.stack()[0][3]}.csv"
-        if all([RELOAD, pth.exists()]):
-            # reload existing calculation
-            logger.info(f"{self} - Reloading heating energy demand")
-            heating_hourly = pd.read_csv(
-                pth, index_col=0, header=0, parse_dates=True
-            ).squeeze()
+        pth = self._simulation_directory / f"data_{inspect.stack()[0][3]}.csv"
+        if pth.exists():
+            cooling_demand = collection_from_series(
+                pd.read_csv(pth, index_col=0, parse_dates=True, header=0).squeeze()
+            )
         else:
-            # run calculation process
-            logger.info(f"{self} - Calculating heating energy demand")
+            eui = self.eui_result(as_series=False)
+            cooling_load_balance = -self.load_balance_result(
+                as_dataframe=False, normalised=True
+            )["Cooling"]
+            cooling_demand = (cooling_load_balance / cooling_load_balance.total) * eui[
+                "Cooling"
+            ]
+            collection_to_series(cooling_demand).to_csv(pth)
 
-            # get load balance outputs - normalised, in kWh/m2
-            load_balance_df = self.load_balance(
-                directory=directory, normalised=True, single_building=True
+        if as_series:
+            s = collection_to_series(cooling_demand)
+            s.name = s.name.replace("Energy", "Cooling Energy")
+            return s
+
+        return cooling_demand
+
+    def cooling_energy_consumption(
+        self, as_series: bool = False
+    ) -> HourlyContinuousCollection | pd.Series:
+        """Get the cooling energy consumption of the simulation, including
+        equipment efficiency.
+
+        Args:
+            as_series (bool, optional):
+                Whether to return the results as a pandas Series. Defaults to False.
+
+        Returns:
+            HourlyContinuousCollection | pd.Series:
+                The cooling energy consumption of the building typology.
+        """
+        return self.cooling_energy_demand(as_series=as_series) / self.cooling_eer
+
+    def heating_energy_demand(
+        self, as_series: bool = False
+    ) -> HourlyContinuousCollection | pd.Series:
+        """Return the cooling energy demand of the simulation.
+
+        Args:
+            as_series (bool, optional):
+                Whether to return the results as a pandas Series. Defaults to False.
+
+        Returns:
+            HourlyContinuousCollection | pd.Series:
+                The heating energy demand of the building typology.
+        """
+
+        pth = self._simulation_directory / f"data_{inspect.stack()[0][3]}.csv"
+        if pth.exists():
+            heating_demand = collection_from_series(
+                pd.read_csv(pth, index_col=0, parse_dates=True, header=0).squeeze()
             )
+        else:
+            eui = self.eui_result(as_series=False)
+            heating_load_balance = self.load_balance_result(
+                as_dataframe=False, normalised=True
+            )["Heating"]
+            heating_demand = (heating_load_balance / heating_load_balance.total) * eui[
+                "Heating"
+            ]
+            collection_to_series(heating_demand).to_csv(pth)
 
-            # get EUI outputs, which are also always normalised
-            eui_df = self.annual_eui(directory=directory)
+        if as_series:
+            s = collection_to_series(heating_demand)
+            s.name = s.name.replace("Energy", "Heating Energy")
+            return s
 
-            # calculate and scale heating load to eui to ensure consistency
+        return heating_demand
+
+    def heating_energy_consumption(
+        self, as_series: bool = False
+    ) -> HourlyContinuousCollection | pd.Series:
+        """Get the heating energy consumption of the simulation, including
+        equipment efficiency.
+
+        Args:
+            as_series (bool, optional):
+                Whether to return the results as a pandas Series. Defaults to False.
+
+        Returns:
+            HourlyContinuousCollection | pd.Series:
+                The heating energy consumption of the building typology.
+        """
+        return self.heating_energy_demand(as_series=as_series) / self.heating_cop
+
+    def lighting_energy_demand(
+        self, as_series: bool = False
+    ) -> HourlyContinuousCollection | pd.Series:
+        """Return the lighting energy demand of the simulation.
+
+        Args:
+            as_series (bool, optional):
+                Whether to return the results as a pandas Series. Defaults to False.
+
+        Returns:
+            HourlyContinuousCollection | pd.Series:
+                The lighting energy demand of the building typology.
+        """
+
+        pth = self._simulation_directory / f"data_{inspect.stack()[0][3]}.csv"
+        if pth.exists():
+            lighting_demand = collection_from_series(
+                pd.read_csv(pth, index_col=0, parse_dates=True, header=0).squeeze()
+            )
+        else:
+            eui = self.eui_result(as_series=False)
+            lighting_load_balance = self.load_balance_result(
+                as_dataframe=False, normalised=True
+            )["Lighting"]
             try:
-                heating_annual_kwhm2 = eui_df["Heating"]
-                heating_hourly = -load_balance_df["Load Balance Heating (kWh/m2)"]
-                heating_hourly = ((
-                    heating_hourly / heating_hourly.sum()
-                ) * heating_annual_kwhm2)
-            except KeyError:
-                logger.warning(
-                    f"{self} - No heating demand found. Returning zeros."
-                )
-                heating_hourly = pd.Series([0] * len(load_balance_df.index), index=load_balance_df.index)
-            heating_hourly.name = "Heating (kWh/m2)"
+                lighting_demand = (
+                    lighting_load_balance / lighting_load_balance.total
+                ) * eui["Interior Lighting"]
+            except ZeroDivisionError:
+                lighting_demand = lighting_load_balance
+            collection_to_series(lighting_demand).to_csv(pth)
 
-            # save to file
-            heating_hourly.to_csv(pth)
+        if as_series:
+            s = collection_to_series(lighting_demand)
+            s.name = s.name.replace("Energy", "Lighting Energy")
+            return s
 
-        # convert to normalised if needed
-        if not normalised:
-            heating_hourly *= self.typical_building_gfa
-            heating_hourly.name = heating_hourly.name.replace("(kWh/m2)", "(kWh)")
+        return lighting_demand
 
-        # multiply by number of buildings if needed
-        if not single_building:
-            if not normalised:
-                heating_hourly *= self._number_of_buildings()
-
-        return heating_hourly
-
-    def _heating_energy_consumption(
-        self,
-        directory: Path = ROOT_DIRECTORY,
-        normalised: bool = False,
-        single_building: bool = False,
-    ) -> pd.Series:
-        """Get the heating energy consumption of the typology, including effects from equipment performance.
+    def lighting_energy_consumption(
+        self, as_series: bool = False
+    ) -> HourlyContinuousCollection | pd.Series:
+        """Get the lighting energy consumption of the simulation, including
+        equipment efficiency.
 
         Args:
-            directory (Path, optional):
-                The directory where simulations results are stored. Defaults
-                to ROOT_DIRECTORY.
-            normalised (bool, optional):
-                If True, then the results are normalised by the total area of the typology.
-            single_building (bool, optional):
-                If True, then the results are not multiplied by the number of buildings.
+            as_series (bool, optional):
+                Whether to return the results as a pandas Series. Defaults to False.
 
         Returns:
-            pd.Series:
-                The heating energy consumption of the typology.
+            HourlyContinuousCollection | pd.Series:
+                The lighting energy consumption of the building typology.
+        """
+        return self.lighting_energy_demand(as_series=as_series)
+
+    def electric_equipment_energy_demand(
+        self, as_series: bool = False
+    ) -> HourlyContinuousCollection | pd.Series:
+        """Return the electric_equipment energy demand of the simulation.
+
+        Args:
+            as_series (bool, optional):
+                Whether to return the results as a pandas Series. Defaults to False.
+
+        Returns:
+            HourlyContinuousCollection | pd.Series:
+                The electric_equipment energy demand of the building typology.
         """
 
-        return (
-            self._heating_energy_demand(
-                directory=directory,
-                normalised=normalised,
-                single_building=single_building,
+        pth = self._simulation_directory / f"data_{inspect.stack()[0][3]}.csv"
+        if pth.exists():
+            electric_equipment_demand = collection_from_series(
+                pd.read_csv(pth, index_col=0, parse_dates=True, header=0).squeeze()
             )
-            / self.heating_cop
-        )
-
-    def _lighting_energy_demand(
-        self,
-        directory: Path = ROOT_DIRECTORY,
-        normalised: bool = False,
-        single_building: bool = False,
-    ) -> pd.Series:
-        """Get the lighting energy demand of the typology.
-
-        Args:
-            directory (Path, optional):
-                The directory where simulations results are stored. Defaults
-                to ROOT_DIRECTORY.
-            normalised (bool, optional):
-                If True, then the results are normalised by the total area of the typology.
-            single_building (bool, optional):
-                If True, then the results are not multiplied by the number of buildings.
-
-        Returns:
-            pd.Series: A pandas Series of the hourly lighting energy demand in kWh.
-        """
-
-        pth = Path(directory) / self.identifier / f"data_{inspect.stack()[0][3]}.csv"
-        if all([RELOAD, pth.exists()]):
-            # reload existing calculation
-            logger.info(f"{self} - Reloading lighting energy demand")
-            lighting_hourly = pd.read_csv(
-                    pth, index_col=0, header=0, parse_dates=True
-                ).squeeze()
         else:
-            # run calculation process
-            logger.info(f"{self} - Calculating lighting energy demand")
-
-            # get load balance outputs - normalised, in kWh/m2
-            load_balance_df = self.load_balance(
-                directory=directory, normalised=True, single_building=True
-            )
-
-            # get EUI outputs, which are also always normalised
-            eui_df = self.annual_eui(directory=directory)
-
-            # calculate and scale heating load to eui to ensure consistency
+            eui = self.eui_result(as_series=False)
+            electric_equipment_load_balance = self.load_balance_result(
+                as_dataframe=False, normalised=True
+            )["Electric Equipment"]
             try:
-                lighting_annual_kwhm2 = eui_df["Interior Lighting"]
-                lighting_hourly = -load_balance_df["Load Balance Lighting (kWh/m2)"]
-                lighting_hourly = ((
-                    lighting_hourly / lighting_hourly.sum()
-                ) * lighting_annual_kwhm2)
-            except KeyError:
-                logger.warning(
-                    f"{self} - No lighting demand found. Returning zeros."
-                )
-                lighting_hourly = pd.Series([0] * len(load_balance_df.index), index=load_balance_df.index)
-            lighting_hourly.name = "Lighting (kWh/m2)"
-            
-            # save to file
-            lighting_hourly.to_csv(pth)
+                electric_equipment_demand = (
+                    electric_equipment_load_balance
+                    / electric_equipment_load_balance.total
+                ) * eui["Electric Equipment"]
+            except ZeroDivisionError:
+                electric_equipment_demand = electric_equipment_load_balance
+            collection_to_series(electric_equipment_demand).to_csv(pth)
 
-        # convert to normalised if needed
-        if not normalised:
-            lighting_hourly *= self.typical_building_gfa
-            lighting_hourly.name = lighting_hourly.name.replace("(kWh/m2)", "(kWh)")
+        if as_series:
+            s = collection_to_series(electric_equipment_demand)
+            s.name = s.name.replace("Energy", "Electric Equipment Energy")
+            return s
 
-        # multiply by number of buildings if needed
-        if not single_building:
-            if not normalised:
-                lighting_hourly *= self._number_of_buildings()
+        return electric_equipment_demand
 
-        return lighting_hourly
-
-    def _lighting_energy_consumption(
-        self,
-        directory: Path = ROOT_DIRECTORY,
-        normalised: bool = False,
-        single_building: bool = False,
-    ) -> pd.Series:
-        """Get the lighting energy consumption of the typology.
+    def electric_equipment_energy_consumption(
+        self, as_series: bool = False
+    ) -> HourlyContinuousCollection | pd.Series:
+        """Get the electric_equipment energy consumption of the simulation, including
+        equipment efficiency.
 
         Args:
-            directory (Path, optional):
-                The directory where simulations results are stored. Defaults
-                to ROOT_DIRECTORY.
-            normalised (bool, optional):
-                If True, then the results are normalised by the total area of the typology.
-            single_building (bool, optional):
-                If True, then the results are not multiplied by the number of buildings.
+            as_series (bool, optional):
+                Whether to return the results as a pandas Series. Defaults to False.
 
         Returns:
-            pd.Series:
-                The lighting energy consumption of the typology.
+            HourlyContinuousCollection | pd.Series:
+                The electric_equipment energy consumption of the building typology.
         """
+        return self.electric_equipment_energy_demand(as_series=as_series)
 
-        return self._lighting_energy_demand(
-            directory=directory, normalised=normalised, single_building=single_building
-        )
-
-    def _electric_equipment_energy_demand(
-        self,
-        directory: Path = ROOT_DIRECTORY,
-        normalised: bool = False,
-        single_building: bool = False,
-    ) -> pd.Series:
-        """Get the electric equipment energy demand of the typology.
+    def hot_water_energy_demand(
+        self, as_series: bool = False
+    ) -> HourlyContinuousCollection | pd.Series:
+        """Return the electric_equipment energy demand of the simulation.
 
         Args:
-            directory (Path, optional):
-                The directory where simulations results are stored. Defaults
-                to ROOT_DIRECTORY.
+            as_series (bool, optional):
+                Whether to return the results as a pandas Series. Defaults to False.
             normalised (bool, optional):
-                If True, then the results are normalised by the total area of the typology.
-            single_building (bool, optional):
-                If True, then the results are not multiplied by the number of buildings.
+                Whether to return the results in kWh/m2. Defaults to False.
 
         Returns:
-            pd.Series: A pandas Series of the hourly electric equipment energy demand in kWh.
+            HourlyContinuousCollection | pd.Series:
+                The electric_equipment energy demand of the building typology.
         """
 
-        pth = Path(directory) / self.identifier / f"data_{inspect.stack()[0][3]}.csv"
-        if all([RELOAD, pth.exists()]):
-            # reload existing calculation
-            logger.info(f"{self} - Reloading electric equipment energy demand")
-            electric_equipment_hourly = pd.read_csv(
-                    pth, index_col=0, header=0, parse_dates=True
-                ).squeeze()
-        else:
-            # run calculation process
-            logger.info(f"{self} - Calculating electric equipment energy demand")
-
-            # get load balance outputs - normalised, in kWh/m2
-            load_balance_df = self.load_balance(
-                directory=directory, normalised=True, single_building=True
+        pth = self._simulation_directory / f"data_{inspect.stack()[0][3]}.csv"
+        if pth.exists():
+            hot_water_demand = collection_from_series(
+                pd.read_csv(pth, index_col=0, parse_dates=True, header=0).squeeze()
             )
-
-            # get EUI outputs, which are also always normalised
-            eui_df = self.annual_eui(directory=directory)
-
-            # calculate and scale heating load to eui to ensure consistency
+        else:
+            eui = self.eui_result(as_series=False)
+            hot_water_load_balance = self.load_balance_result(
+                as_dataframe=False, normalised=True
+            )["Service Hot Water"]
             try:
-                electric_equipment_annual_kwhm2 = eui_df["Electric Equipment"]
-                electric_equipment_hourly = -load_balance_df[
-                    "Load Balance Electric Equipment (kWh/m2)"
-                ]
-                electric_equipment_hourly = ((
-                    electric_equipment_hourly / electric_equipment_hourly.sum()
-                ) * electric_equipment_annual_kwhm2)
-            except KeyError:
-                logger.warning(
-                    f"{self} - No electric equipment demand found. Returning zeros."
-                )
-                electric_equipment_hourly = pd.Series([0] * len(load_balance_df.index), index=load_balance_df.index)
-            electric_equipment_hourly.name = "Electric Equipment (kWh/m2)"
+                hot_water_demand = (
+                    hot_water_load_balance / hot_water_load_balance.total
+                ) * eui["Water Systems"]
+            except ZeroDivisionError:
+                hot_water_demand = hot_water_load_balance
+            collection_to_series(hot_water_demand).to_csv(pth)
 
-            # save to file
-            electric_equipment_hourly.to_csv(pth)
+        if as_series:
+            s = collection_to_series(hot_water_demand)
+            s.name = s.name.replace("Energy", "Hot Water Energy")
+            return s
 
-        # convert to normalised if needed
-        if not normalised:
-            electric_equipment_hourly *= self.typical_building_gfa
-            electric_equipment_hourly.name = electric_equipment_hourly.name.replace(
-                "(kWh/m2)", "(kWh)"
-            )
+        return hot_water_demand
 
-        # multiply by number of buildings if needed
-        if not single_building:
-            if not normalised:
-                electric_equipment_hourly *= self._number_of_buildings()
-
-        return electric_equipment_hourly
-
-    def _electric_equipment_energy_consumption(
-        self,
-        directory: Path = ROOT_DIRECTORY,
-        normalised: bool = False,
-        single_building: bool = False,
-    ) -> pd.Series:
-        """Get the electric equipment energy consumption of the typology.
+    def hot_water_consumption(
+        self, as_series: bool = False
+    ) -> HourlyContinuousCollection | pd.Series:
+        """Get the hot water energy consumption of the simulation, including
+        equipment efficiency.
 
         Args:
-            directory (Path, optional):
-                The directory where simulations results are stored. Defaults
-                to ROOT_DIRECTORY.
-            normalised (bool, optional):
-                If True, then the results are normalised by the total area of the typology.
-            single_building (bool, optional):
-                If True, then the results are not multiplied by the number of buildings.
+            as_series (bool, optional):
+                Whether to return the results as a pandas Series. Defaults to False.
 
         Returns:
-            pd.Series:
-                The electric equipment energy consumption of the typology.
+            HourlyContinuousCollection | pd.Series:
+                The hot water energy consumption of the building typology.
         """
+        return self.hot_water_energy_demand(as_series=as_series) / self.heating_cop
 
-        return self._electric_equipment_energy_demand(
-            directory=directory, normalised=normalised, single_building=single_building
-        )
-
-    def _hot_water_energy_demand(
+    def pump_energy_consumption(
         self,
-        directory: Path = ROOT_DIRECTORY,
-        normalised: bool = False,
-        single_building: bool = False,
-    ) -> pd.Series:
-        """Get the hot water energy demand of the typology.
-
-        Args:
-            directory (Path, optional):
-                The directory where simulations results are stored. Defaults
-                to ROOT_DIRECTORY.
-            normalised (bool, optional):
-                If True, then the results are normalised by the total area of the typology.
-            single_building (bool, optional):
-                If True, then the results are not multiplied by the number of buildings.
-
-        Returns:
-            pd.Series: A pandas Series of the hourly hot water energy demand (prior to applying system efficiency) in kWh.
-        """
-
-        pth = Path(directory) / self.identifier / f"data_{inspect.stack()[0][3]}.csv"
-        if all([RELOAD, pth.exists()]):
-            # reload existing calculation
-            logger.info(f"{self} - Reloading hot water energy demand")
-            hot_water_hourly = pd.read_csv(
-                    pth, index_col=0, header=0, parse_dates=True
-                ).squeeze()
-        else:
-            # run calculation process
-            logger.info(f"{self} - Calculating hot water energy demand")
-
-            # get load balance outputs - normalised, in kWh/m2
-            load_balance_df = self.load_balance(
-                directory=directory, normalised=True, single_building=True
-            )
-
-            # get EUI outputs, which are also always normalised
-            eui_df = self.annual_eui(directory=directory)
-
-            try:
-                # calculate and scale hot water load to eui to ensure consistency
-                hot_water_annual_kwhm2 = eui_df["Water Systems"]
-                hot_water_hourly = -load_balance_df["Load Balance Service Hot Water (kWh/m2)"]
-                hot_water_hourly = ((
-                    hot_water_hourly / hot_water_hourly.sum()
-                ) * hot_water_annual_kwhm2)
-            except KeyError:
-                hot_water_hourly = pd.Series(
-                    np.zeros(8760), index=load_balance_df.index
-                )
-            hot_water_hourly.name = "Hot Water (kWh/m2)"
-
-            # save to file
-            hot_water_hourly.to_csv(pth)
-
-        # convert to normalised if needed
-        if not normalised:
-            hot_water_hourly *= self.typical_building_gfa
-            hot_water_hourly.name = hot_water_hourly.name.replace("(kWh/m2)", "(kWh)")
-
-        # multiply by number of buildings if needed
-        if not single_building:
-            if not normalised:
-                hot_water_hourly *= self._number_of_buildings()
-
-        return hot_water_hourly
-
-    def _hot_water_energy_consumption(
-        self,
-        directory: Path = ROOT_DIRECTORY,
-        normalised: bool = False,
-        single_building: bool = False,
-    ) -> pd.Series:
-        """Get the hot water energy consumption of the typology, including effects from equipment performance.
-
-        Args:
-            directory (Path, optional):
-                The directory where simulations results are stored. Defaults
-                to ROOT_DIRECTORY.
-            normalised (bool, optional):
-                If True, then the results are normalised by the total area of the typology.
-            single_building (bool, optional):
-                If True, then the results are not multiplied by the number of buildings.
-
-        Returns:
-            pd.Series:
-                The hot water energy consumption of the typology.
-        """
-
-        return (
-            self._hot_water_energy_demand(
-                directory=directory,
-                normalised=normalised,
-                single_building=single_building,
-            )
-            / self.heating_cop
-        )
-
-    def _lift_energy_demand(self, normalised: bool = False, single_building: bool = False) -> pd.Series:
-        """Estimate the annual energy consumption of a lift system in kWh/m2,
-        for a building of the given height.
-
-        References:
-        - BRE. “NABERS UK: Guide to Design for Performance,” April 2021.
-
-        Returns:
-            pd.Series:
-                The estimated hourly energy consumption of the lift system.
-        """
-
-        logger.info(f"{self} - Calculating lifts demand")
-
-        if self.average_num_floors < 2:
-            # no lifts in buildings < 2 floors
-            lift_energy_hourly = pd.Series([0] * 8760, index=INDEX)
-        else:
-            alpha = (0.26 + 0.37) / 2
-
-            annual_energy_kwh = ((528 * self.average_num_floors) + (5.5 * self.typical_building_gfa)) * (1 - alpha)
-            
-            # get occupants to distribute annual energy over
-            occupants = self._occupants(per_building=True)
-
-            # clip occupants so that the lowest level is at least 50% of the maximum level (to approximate high standby power)
-            occupants.clip(lower=occupants.quantile(0.5), inplace=True)
-
-            lift_energy_hourly = (occupants / occupants.sum()) * annual_energy_kwh
-            lift_energy_hourly = lift_energy_hourly / self.typical_building_gfa  # normalised
-        lift_energy_hourly.name = "Lifts (kWh/m2)"
-
-        # convert to normalised if needed
-        if not normalised:
-            lift_energy_hourly *= self.typical_building_gfa
-            lift_energy_hourly.name = lift_energy_hourly.name.replace("(kWh/m2)", "(kWh)")
-
-        # multiply by number of buildings if needed
-        if not single_building:
-            if not normalised:
-                lift_energy_hourly *= self._number_of_buildings()
-
-        return lift_energy_hourly
-
-    def _lift_energy_consumption(self, normalised: bool = False, single_building: bool = False) -> pd.Series:
-        """Estimate the annual energy consumption of a lift system in kWh,
-        for a building of the given height.
-
-        Returns:
-            pd.Series:
-                The estimated hourly energy consumption of the lift system in kWh.
-        """
-        return self._lift_energy_demand(normalised=normalised, single_building=single_building)
-
-    def _pump_energy_consumption(
-        self,
-        directory: Path = ROOT_DIRECTORY,
-        normalised: bool = False,
-        single_building: bool = False,
+        as_series: bool = False,
     ) -> pd.Series:
         """Estimate the energy consumption of pumps in the building, based on
         simulation results. This includes efficiencies of the pumps.
@@ -2315,6 +2276,7 @@ class Typology(BaseModel):
             This method is a bit of a hack, and assumes that the pump power is
             infinitely variable based on Q = m.Cp.dT. This is not true, and
             should be updated in the future.
+
             It also assumes the dT for both hot water and chilled water is constant.
             It also assumes the Cp for water is constant.
 
@@ -2336,142 +2298,76 @@ class Typology(BaseModel):
             pd.Series: Hourly pump energy demand
         """
 
-        # run calculation process
-        logger.info(f"{self} - Calculating pumps energy consumption")
+        pth = self._simulation_directory / f"data_{inspect.stack()[0][3]}.csv"
+        if pth.exists():
+            pump_energy_consumption = pd.read_csv(
+                pth, index_col=0, parse_dates=True, header=0
+            ).squeeze()
+        else:
+            cooling_demand = self.cooling_energy_demand(as_series=True)
+            heating_demand = self.heating_energy_demand(as_series=True)
+            hot_water_demand = self.hot_water_energy_demand(as_series=True)
 
-        # TODO - make this method dynamic, using timestep Cp and delta Ts ... maybe
-        
-        # load datasets - in normalised form for conversion later
-        load_balance_df = self.load_balance(directory=directory, normalised=True, single_building=True)
+            # TODO - make this method dynamic, using timestep Cp and delta Ts ... maybe
 
-        # HOT WATER FLOW #
-        # NOTE: This doesn't account for pump minimum flow rates
-        hot_water_delta_t = pd.Series(
-            [25] * len(load_balance_df.index),
-            index=load_balance_df.index,
-            name="Hot Water Delta T (K)",
-        )  # K
-        hot_water_cp = pd.Series(
-            [4.18] * len(load_balance_df.index),
-            index=load_balance_df.index,
-            name="Hot Water Specific Heat Capcity (J/g/K)",
-        )  # J/g/K
-        dhw_energy_demand = (
-            self._hot_water_energy_demand(
-                directory=directory, normalised=True, single_building=True
+            # HOT WATER FLOW #
+            # NOTE: This doesn't account for pump minimum flow rates
+            hot_water_delta_t = pd.Series(
+                [25] * len(cooling_demand.index),
+                index=cooling_demand.index,
+                name="Hot Water Delta T (K)",
+            )  # K
+            hot_water_cp = pd.Series(
+                [4.18] * len(cooling_demand.index),
+                index=cooling_demand.index,
+                name="Hot Water Specific Heat Capcity (J/g/K)",
+            )  # J/g/K
+
+            hot_water_flowrate = (
+                (heating_demand + hot_water_demand) / (hot_water_delta_t * hot_water_cp)
+            ).rename(
+                "Hot Water Flow (l/s)"
+            )  # l/s
+
+            # CHILLED WATER FLOW #
+            chilled_water_delta_t = pd.Series(
+                [6] * len(cooling_demand.index),
+                index=cooling_demand.index,
+                name="Chilled Water Delta T (K)",
+            )  # K
+            chilled_water_cp = pd.Series(
+                [4.18] * len(cooling_demand.index),
+                index=cooling_demand.index,
+                name="Chilled Water Specific Heat Capcity (J/g/K)",
+            )  # J/g/K
+
+            chilled_water_flowrate = (
+                cooling_demand / (chilled_water_delta_t * chilled_water_cp)
+            ).rename(
+                "Chilled Water Flow (l/s)"
+            )  # l/s
+
+            # calculate pump energy demand, and convert back to kW
+            hot_water_pumping = hot_water_flowrate * self.pump_power  # W/m2
+            chilled_water_pumping = chilled_water_flowrate * self.pump_power  # W/m2
+            pump_energy_consumption = (
+                (hot_water_pumping + chilled_water_pumping) / 1000
+            ).rename("Energy Intensity (kWh/m2)")
+            pump_energy_consumption.to_csv(pth)
+
+        if as_series:
+            pump_energy_consumption.name = pump_energy_consumption.name.replace(
+                "Energy", "Pump Energy"
             )
-        ).rename("DHW Energy Demand (kWh/m2)")
-        space_heating_energy_demand = (
-            self._heating_energy_demand(
-                directory=directory, normalised=True, single_building=True
-            )
-        ).rename(
-            "Space Heating Energy Demand (kWh/m2)"
-        )  # kW/m2
-        heating_energy_demand = (
-            dhw_energy_demand + space_heating_energy_demand
-        ).rename("Heating Energy Demand (kWh/m2)")
+            return pump_energy_consumption
 
-        hot_water_flowrate = (
-            heating_energy_demand / (hot_water_delta_t * hot_water_cp)
-        ).rename(
-            "Hot Water Flow (l/s)"
-        )  # l/s
+        return collection_from_series(pump_energy_consumption)
 
-        # CHILLED WATER FLOW #
-        chilled_water_delta_t = pd.Series(
-            [6] * len(load_balance_df.index),
-            index=load_balance_df.index,
-            name="Chilled Water Delta T (K)",
-        )  # K
-        chilled_water_cp = pd.Series(
-            [4.18] * len(load_balance_df.index),
-            index=load_balance_df.index,
-            name="Chilled Water Specific Heat Capcity (J/g/K)",
-        )  # J/g/K
-        cooling_energy_demand = (
-            self._cooling_energy_demand(
-                directory=directory, normalised=True, single_building=True
-            )
-        ).rename(
-            "Cooling Energy Demand (kWh/m2)"
-        )  # kW/m2
-
-        chilled_water_flowrate = (
-            cooling_energy_demand / (chilled_water_delta_t * chilled_water_cp)
-        ).rename(
-            "Chilled Water Flow (l/s)"
-        )  # l/s
-
-        # calculate pump energy demand, and convert back to kW
-        hot_water_pumping = (hot_water_flowrate * self.pump_power).rename(
-            "Hot Water Pumps (W/m2)"
-        )
-        chilled_water_pumping = (chilled_water_flowrate * self.pump_power).rename(
-            "Chilled Water Pumps (W/m2)"
-        )
-        pump_energy_consumption = (
-            (hot_water_pumping + chilled_water_pumping) / 1000
-        ).rename("Pumps (kWh/m2)")
-
-        # convert to normalised if needed
-        if not normalised:
-            pump_energy_consumption *= self.typical_building_gfa
-            pump_energy_consumption.name = pump_energy_consumption.name.replace("(kWh/m2)", "(kWh)")
-
-        # multiply by number of buildings if needed
-        if not single_building:
-            if not normalised:
-                pump_energy_consumption *= self._number_of_buildings()
-
-        # Combine and sum
-        return pump_energy_consumption
-    
-    def _ventilation_flowrate(self, directory: Path = ROOT_DIRECTORY, single_building: bool = False) -> pd.Series:
-        """Helper method to provide the ventilation flowrate for the typology.
-        
-        Args:
-            directory (Path, optional):
-                The directory where simulations results are stored. Defaults
-                to ROOT_DIRECTORY.
-            single_building (bool, optional):
-                If True, then the results are not multiplied by the number of buildings
-        
-        Returns:
-            pd.Series: The ventilation flowrate in l/s
-        """
-
-        sql_obj = self.sql_results(directory=directory)
-
-        # get total volume of air being delivered to zones
-        supply_air_flowrate = pd.concat(
-            [
-                collection_to_series(i)
-                for i in sql_obj.data_collections_by_output_name(
-                    "Zone Mechanical Ventilation Current Density Volume Flow Rate"
-                )
-            ],
-            axis=1,
-        )
-        supply_air_flowrate = supply_air_flowrate.sum(axis=1).rename(
-            supply_air_flowrate.columns[0]
-        )
-
-        # convert m3/s to l/s
-        supply_air_ls = supply_air_flowrate * 1000
-
-        # rename
-        supply_air_ls.name = "Volume Flow Rate (l/s)"
-
-        # multiply by number of buildings if needed
-        if not single_building:
-            supply_air_ls *= self._number_of_buildings()
-        
-        return supply_air_ls
-
-    def _fan_energy_consumption(self, directory: Path = ROOT_DIRECTORY, normalised: bool = False, single_building: bool = False) -> pd.Series:
+    def fan_energy_consumption(
+        self, as_series: bool = False
+    ) -> HourlyContinuousCollection | pd.Series:
         """Estimate the energy consumption of fans in the building, based on
-        simulation results. This includes efficiencies of the fans.
+        simulation results, including efficiency of the fans.
 
         Note:
             This method is a bit of a hack, and assumes that the fan power is
@@ -2486,107 +2382,142 @@ class Typology(BaseModel):
             - https://burohappold.sharepoint.com/sites/060941/Shared%20Documents/Sustainability%20and%20Microclimate/energy/ss/RC_ExcelEnergyLoadCalcs/Copy%20of%20160525%20RC%20DEWA%20Office%20Energy%20REVISION%20Sunpower%20345.xlsx?web=1
 
         Args:
-            directory (Path, optional):
-                The directory where simulations results are stored. Defaults
-                to ROOT_DIRECTORY.
-            normalised (bool, optional): 
-                If True, then the results are normalised by the total area of the typology.
-            single_building (bool, optional):
-                If True, then the results are not multiplied by the number of buildings
+            as_series: bool, optional
+                Whether to return the results as a pandas Series. Defaults to False.
 
         Returns:
-            pd.Series: Hourly fan energy consumption
+            HourlyContinuousCollection | pd.Series:
+                Hourly fan energy consumption
         """
 
-        logger.info(f"{self} - Calculating fans energy consumption")
+        pth = self._simulation_directory / f"data_{inspect.stack()[0][3]}.csv"
+        if pth.exists():
+            fan_energy = pd.read_csv(
+                pth, index_col=0, parse_dates=True, header=0
+            ).squeeze()
+        else:
 
-        # get volume of air being supplied
-        supply_air_ls = self._ventilation_flowrate(directory=directory, single_building=True)
+            # get volume of air being supplied for a single building
+            supply_air_ls = self.ventilation_flowrate(as_series=True) * self.typical_gfa
 
-        # get the energy demand in kWh/m2
-        fan_energy = (supply_air_ls * self.fan_power / 1000) / self.typical_building_gfa  # kWh/m2
+            # get the energy demand in kWh/m2 (sfp is in w/l/s, so the /1000 accounts for that)
+            fan_energy = (
+                supply_air_ls * self.fan_power / 1000
+            ) / self.typical_gfa  # kWh/m2
 
-        # THIS PART IS ADDED TO ACCOUNT FOR ENERGY FOR FANS TO PUMP COOLED/HEATED AIR INTO A SPACE, NOT JUST VENTILATION
-        # get cooling/heating flow recirculation energy
-        load_balance_w = self.load_balance(directory=directory, normalised=False, single_building=True)
-        # max htg/clg load - to get peak fan energy
-        max_load_w = max(load_balance_w["Load Balance Cooling (kWh)"].max(), load_balance_w["Load Balance Heating (kWh)"].max()) / 1000
-        delta_t = 12
-        flow_ls = max_load_w / (1.2 * 1.02 * delta_t)
-        flow_energy_kwh = (self.fan_power * flow_ls) / 1000
-        # distribute over the htg/clg loads, by interpolating between highest and lowest total htg/clg, and making the peak wattage the flow energy the peak energy
-        xx = (load_balance_w["Load Balance Cooling (kWh)"] + load_balance_w["Load Balance Heating (kWh)"])
-        xx = np.interp(xx, [xx.min(), xx.max()], [0, flow_energy_kwh])
-        # add to the fan_energy_consumption
-        fan_energy += xx
+            # THIS PART IS ADDED TO ACCOUNT FOR ENERGY FOR FANS TO PUMP COOLED/HEATED AIR INTO A SPACE, NOT JUST VENTILATION
+            # get cooling/heating flow recirculation energy
+            load_balance_kwh = self.load_balance_result(
+                as_dataframe=True, normalised=False
+            )
+            # load_balance_w = self.load_balance(normalised=False, single_building=True)
+            # max htg/clg load - to get peak fan energy
+            max_load_w = (
+                max(
+                    load_balance_kwh["Cooling"].max(),
+                    load_balance_kwh["Heating"].max(),
+                )
+                / 1000
+            )
+            delta_t = 12
+            flow_ls = max_load_w / (1.2 * 1.02 * delta_t)
+            flow_energy_kwh = (self.fan_power * flow_ls) / 1000
+            # distribute over the htg/clg loads, by interpolating between highest and lowest total htg/clg, and making the peak wattage the flow energy the peak energy
+            xx = load_balance_kwh["Cooling"] + load_balance_kwh["Heating"]
+            xx = np.interp(xx, [xx.min(), xx.max()], [0, flow_energy_kwh])
+            # add to the fan_energy_consumption
+            fan_energy += xx
+            fan_energy = fan_energy.rename("Energy Intensity (kWh/m2)")
+            fan_energy.to_csv(pth)
 
-        fan_energy = fan_energy.rename(
-            "Fans (kWh/m2)"
+        if as_series:
+            fan_energy.name = fan_energy.name.replace("Energy", "Fan Energy")
+            return fan_energy
+
+        return collection_from_series(fan_energy)
+
+    def lift_energy_consumption(
+        self, as_series: bool = False
+    ) -> HourlyContinuousCollection | pd.Series:
+        """Estimate the annual energy consumption of a lift system in kWh/m2.
+
+        References:
+        - BRE. “NABERS UK: Guide to Design for Performance,” April 2021.
+
+        Returns:
+            pd.Series:
+                The estimated hourly energy consumption of the lift system.
+        """
+
+        if self.average_num_floors < 2:
+            # no lifts in buildings < 2 floors
+            annual_energy_kwhm2 = 0
+        else:
+            alpha = (0.26 + 0.37) / 2
+            annual_energy_kwhm2 = (
+                ((528 * self.average_num_floors) + (5.5 * self.typical_gfa))
+                * (1 - alpha)
+            ) / self.typical_gfa
+
+        # get the number of occupants to distribute the energy over
+        occupants = self._population(per_building=True)
+
+        # clip occupants so that the lowest level is at least 25% of the maximum level (to approximate standby power)
+        occupants.clip(lower=(occupants.max() - occupants.min()) * 0.25, inplace=True)
+
+        # distribute annual energy across year weighted by occupants
+        lift_energy = ((occupants / occupants.sum()) * annual_energy_kwhm2).rename(
+            "Energy Intensity (kWh/m2)"
         )
 
-        # convert to normalised if needed
-        if not normalised:
-            fan_energy *= self.typical_building_gfa
-            fan_energy.name = fan_energy.name.replace("(kWh/m2)", "(kWh)")
+        if as_series:
+            lift_energy.name = lift_energy.name.replace("Energy", "Lift Energy")
+            return lift_energy
 
-        # multiply by number of buildings if needed
-        if not single_building:
-            if not normalised:
-                fan_energy *= self._number_of_buildings()
-
-        return fan_energy
+        return collection_from_series(lift_energy)
 
     def energy_consumption(
-        self, directory: Path = ROOT_DIRECTORY, normalised: bool = False, single_building: bool = False
+        self, normalised: bool = True, as_dataframe: bool = False
     ) -> pd.DataFrame:
         """Get the energy consumption of the typology, including effects from equipment performance.
 
         Args:
-            directory (Path):
-                The directory to save the results in.
-            normalised (bool):
-                Normalise the results by area. Default is False.
-            single_building (bool):
-                If True, then the results are not multiplied by the number of buildings.
+            normalised (bool, optional):
+                Whether to return the results in kWh/m2. Defaults to True.
 
         Returns:
             pd.DataFrame:
                 The annual hourly energy consumption of the typology.
         """
 
-        pth = Path(directory) / self.identifier / f"data_{inspect.stack()[0][3]}.csv"
-        if all((RELOAD, pth.exists())):
-            logger.info(f"{self} - Reloading energy consumption")
-            energy_consumption_df = pd.read_csv(pth, index_col=0, header=0, parse_dates=True)
-        else:
-            # ensure simulation has been run
-            self._simulate(directory)
+        # get each major metric
+        cooling = self.cooling_energy_consumption(as_series=False)
+        heating = self.heating_energy_consumption(as_series=False)
+        lighting = self.lighting_energy_consumption(as_series=False)
+        electric_equipment = self.electric_equipment_energy_consumption(as_series=False)
+        hot_water = self.hot_water_consumption(as_series=False)
+        lifts = self.lift_energy_consumption(as_series=False)
+        pumps = self.pump_energy_consumption(as_series=False)
+        fans = self.fan_energy_consumption(as_series=False)
 
-            # get each of the energy consumptions, including system efficiencies
-            cooling = self._cooling_energy_consumption(
-                directory=directory, normalised=True, single_building=False
+        if not normalised:
+            cooling = cooling.aggregate_by_area(area=self.total_area, area_unit="m2")
+            heating = heating.aggregate_by_area(area=self.total_area, area_unit="m2")
+            lighting = lighting.aggregate_by_area(area=self.total_area, area_unit="m2")
+            electric_equipment = electric_equipment.aggregate_by_area(
+                area=self.total_area, area_unit="m2"
             )
-            heating = self._heating_energy_consumption(
-                directory=directory, normalised=True, single_building=False
+            hot_water = hot_water.aggregate_by_area(
+                area=self.total_area, area_unit="m2"
             )
-            lighting = self._lighting_energy_consumption(
-                directory=directory, normalised=True, single_building=False
-            )
-            electric_equipment = self._electric_equipment_energy_consumption(
-                directory=directory, normalised=True, single_building=False
-            )
-            hot_water = self._hot_water_energy_consumption(
-                directory=directory, normalised=True, single_building=False
-            )
-            lifts = self._lift_energy_consumption(normalised=True, single_building=False)
-            pumps = self._pump_energy_consumption(
-                directory=directory, normalised=True, single_building=False
-            )
-            fans = self._fan_energy_consumption(directory=directory, normalised=True, single_building=False)
+            lifts = lifts.aggregate_by_area(area=self.total_area, area_unit="m2")
+            pumps = pumps.aggregate_by_area(area=self.total_area, area_unit="m2")
+            fans = fans.aggregate_by_area(area=self.total_area, area_unit="m2")
 
-            # combine results
-            energy_consumption_df = pd.concat(
-                [
+        if as_dataframe:
+            serieses = [
+                collection_to_series(i)
+                for i in [
                     cooling,
                     heating,
                     lighting,
@@ -2595,84 +2526,60 @@ class Typology(BaseModel):
                     lifts,
                     pumps,
                     fans,
-                ],
+                ]
+            ]
+            unit = get_unit(serieses[0].name)
+            keys = [
+                f"{i} ({unit})"
+                for i in [
+                    "Cooling",
+                    "Heating",
+                    "Lighting",
+                    "Electric Equipment",
+                    "Hot Water",
+                    "Lifts",
+                    "Pumps",
+                    "Fans",
+                ]
+            ]
+            df = pd.concat(
+                serieses,
                 axis=1,
+                keys=keys,
             )
+            return df
 
-            # save to file
-            energy_consumption_df.to_csv(pth)
-        
-        # convert to normalised if needed
-        if not normalised:
-            energy_consumption_df *= self.typical_building_gfa
-            energy_consumption_df.columns = [i.replace("(kWh/m2)", "(kWh)") for i in energy_consumption_df.columns]
-        
-        # multiply by number of buildings if needed
-        if not single_building:
-            if not normalised:
-                energy_consumption_df *= self._number_of_buildings()
+        return {
+            "Cooling": cooling,
+            "Heating": heating,
+            "Lighting": lighting,
+            "Electric Equipment": electric_equipment,
+            "Hot Water": hot_water,
+            "Lifts": lifts,
+            "Pumps": pumps,
+            "Fans": fans,
+        }
 
-        return energy_consumption_df
+    def run_all(self) -> None:
+        """Run a combination of simulations and post-processing in one function."""
+        self._simulate()
+        self.energy_consumption()
+        return None
 
-    def _all_data(
-        self, directory: Path = ROOT_DIRECTORY, normalised: bool = False, single_building: bool = False, include_external: bool = True
-    ) -> pd.DataFrame:
-        """Join all hourly data together in a single DataFrame. Useful for debugging."""
-        
-        objects = [
-            self.energy_consumption(directory=directory, normalised=normalised, single_building=single_building),
-            self._ventilation_flowrate(directory=directory, single_building=single_building),
-            self.external_conditions(),
-        ]
-        keys = ["Energy Consumption", "Ventilation Flowrate", "External Conditions",]
-        if include_external:
-            objects.append(self.space_conditions(directory=directory))
-            keys.append("Space Conditions")
+    # endregion: RESULTS_PROCESSING
 
-        df = pd.concat(
-            objects,
-            axis=1,
-            keys=keys,
-        )
-
-        return df
-
-    def annual_eui(self, directory: Path = ROOT_DIRECTORY) -> pd.Series:
-        """Get the annual energy use intensity of the typology in kWh.
-
-        Args:
-            directory (Path):
-                The directory to save the results in.
-
-        Returns:
-            pd.DataFrame:
-                The annual energy use intensity of the typology.
-        """
-        pth = Path(directory) / self.identifier / f"data_{inspect.stack()[0][3]}.csv"
-        if all([RELOAD, pth.exists()]):
-            logger.info(f"{self} - Reloading annual EUI")
-            return pd.read_csv(pth, index_col=0, header=0).squeeze()
-
-        s = annual_eui(self._sql_file(directory=directory).as_posix())
-        s.to_csv(pth)
-        return s
+    # region: PLOTTING
 
     def plot_annual_monthly(
         self,
-        directory: Path = ROOT_DIRECTORY,
         ax: plt.Axes = None,
         rule: str = "MS",
         label: bool = True,
         legend: bool = True,
-        single_building: bool = False,
     ) -> plt.Axes:
         """Plot the monthly energy consumption of the typology.
 
         Args:
-            epw (EPW):
-                The EPW file to use for the simulation.
-            directory (Path):
-                The directory to save the results in.
             ax (plt.Axes):
                 The axes to plot on. Default is None.
             rule (str):
@@ -2683,10 +2590,8 @@ class Typology(BaseModel):
                 Show the legend. Default is True.
         """
 
-        # logger.info(f"{self} - Plotting annual monthly energy consumption")
-
         # get the typology hourly energy consumption, hourly, in kWh
-        df = self.energy_consumption(directory, normalised=False, single_building=single_building)
+        df = self.energy_consumption(normalised=False, as_dataframe=True)
 
         # sort in order to most to least energy consumption
         df = df[df.sum(axis=0).sort_values(ascending=False).index]
@@ -2702,21 +2607,16 @@ class Typology(BaseModel):
 
     def plot_pie(
         self,
-        directory: Path = ROOT_DIRECTORY,
         analysis_period: AnalysisPeriod = AnalysisPeriod(),
         ax: plt.Axes = None,
         label: bool = True,
         legend: bool = True,
-        single_building: bool = False,
+        normalised: bool = True,
         **kwargs,
     ) -> plt.Axes:
         """Plot a pie chart of the annual energy consumption of the typology.
 
         Args:
-            epw (EPW):
-                The EPW file to use for the simulation.
-            directory (Path):
-                The directory to save the results in.
             ax (plt.Axes):
                 The axes to plot on. Default is None.
             label (bool):
@@ -2729,10 +2629,8 @@ class Typology(BaseModel):
                 The axes object.
         """
 
-        # logger.info(f"{self} - Plotting annual energy consumption pie chart")
-
         series = (
-            self.energy_consumption(directory, normalised=False, single_building=single_building)
+            self.energy_consumption(normalised=normalised, as_dataframe=True)
             .loc[pd.to_datetime(analysis_period.datetimes)]
             .sum(axis=0)
         )  # kWh/time-period
@@ -2746,28 +2644,25 @@ class Typology(BaseModel):
 
         ax = pie(series=series, ax=ax, legend=legend, label=label, **kwargs)
 
-        _ = ax.set_title(
-            f"{self.identifier} - Energy Consumption\n{describe_analysis_period(analysis_period)}\n{series.sum():,.0f}{unit} (over {self.typical_building_gfa if single_building else self.total_area:,.0f}m$^{2}$)"
-        )
+        ti = f"{self.identifier} - Energy Consumption\n{describe_analysis_period(analysis_period)}\n{series.sum():,.0f}{unit.replace('m2', 'm$^{2}$')}"
+        if not normalised:
+            ti += f" (over {self.total_area:,.0f}m$^{2}$)"
+        _ = ax.set_title(ti)
 
         return ax
 
     def plot_diurnal(
         self,
-        directory: Path = ROOT_DIRECTORY,
         ax: plt.Axes = None,
         legend: bool = True,
         logy: bool = False,
         normalised: bool = False,
-        single_building: bool = False,
     ) -> plt.Axes:
         """Plot a monthly diurnal profile for energy consumption of the typology.
 
         Args:
             epw (EPW):
                 The EPW file to use for the simulation.
-            directory (Path):
-                The directory to save the results in.
             ax (plt.Axes):
                 The axes to plot on. Default is None.
             legend (bool):
@@ -2782,7 +2677,7 @@ class Typology(BaseModel):
 
         # logger.info(f"{self} - Plotting diurnal energy consumption")
 
-        df = self.energy_consumption(directory=directory, normalised=normalised, single_building=single_building)
+        df = self.energy_consumption(normalised=normalised, as_dataframe=True)
 
         if ax is None:
             ax = plt.gca()
@@ -2793,58 +2688,57 @@ class Typology(BaseModel):
 
         return ax
 
-    def plot_duration_curve(
-        self,
-        directory: Path = ROOT_DIRECTORY,
-        ax: plt.Axes = None,
-        remove_zero: bool = True,
-        legend: bool = True,
-        normalised: bool = False,
-        single_building: bool = False,
-        **kwargs,
-    ) -> plt.Axes:
-        """Plot a duration curve for energy consumption of the typology.
+    # def plot_duration_curve(
+    #     self,
+    #     ax: plt.Axes = None,
+    #     remove_zero: bool = True,
+    #     legend: bool = True,
+    #     normalised: bool = False,
+    #     single_building: bool = False,
+    #     **kwargs,
+    # ) -> plt.Axes:
+    #     """Plot a duration curve for energy consumption of the typology.
 
-        Args:
-            epw (EPW):
-                The EPW file to use for the simulation.
-            directory (Path):
-                The directory to save the results in.
-            ax (plt.Axes):
-                The axes to plot on. Default is None.
-            remove_zero (bool):
-                Remove zero values. Default is True.
-            legend (bool):
-                Show the legend. Default is True.
-            **kwargs:
-                Additional keyword arguments to pass to the plt.hist function.
+    #     Args:
+    #         ax (plt.Axes):
+    #             The axes to plot on. Default is None.
+    #         remove_zero (bool):
+    #             Remove zero values. Default is True.
+    #         legend (bool):
+    #             Show the legend. Default is True.
+    #         **kwargs:
+    #             Additional keyword arguments to pass to the plt.hist function.
 
-        Returns:
-            plt.Axes:
-                The axes object.
-        """
+    #     Returns:
+    #         plt.Axes:
+    #             The axes object.
+    #     """
 
-        # logger.info(f"{self} - Plotting duration curve")
+    #     # logger.info(f"{self} - Plotting duration curve")
 
-        df = self.energy_consumption(directory=directory, normalised=normalised, single_building=single_building)
+    #     df = self.energy_consumption(
+    #         normalised=normalised, single_building=single_building
+    #     )
 
-        if ax is None:
-            ax = plt.gca()
+    #     if ax is None:
+    #         ax = plt.gca()
 
-        ax = duration_curve(df, ax=ax, legend=legend, remove_zero=remove_zero, **kwargs)
+    #     ax = duration_curve(df, ax=ax, legend=legend, remove_zero=remove_zero, **kwargs)
 
-        _ = ax.set_title(f"{self.identifier} - Energy Consumption - Duration Curve")
+    #     _ = ax.set_title(f"{self.identifier} - Energy Consumption - Duration Curve")
 
-        return ax
+    #     return ax
 
-    # def run_everything(self, directory: Path = ROOT_DIRECTORY):
+    # endregion: PLOTTING
+
+    # def run_everything(self):
     #     """Run all calculations for the typology."""
-        
+
     #     _ = self._all_data()
 
     #     # create plots
     #     for legend in [True, False]:
-            
+
     #         # DIURNAL #
     #         fig, ax = plt.subplots(1, 1, figsize=FIGSIZE_RECTANGLE)
     #         self.plot_diurnal(directory=directory, ax=ax, legend=legend)

@@ -63,6 +63,7 @@ class BuildingType(Enum):
     PHYSICAL_EXERCISE = "PhysicalFitnessExercise"
     RELIGIOUS = "Religious"
     EXHIBITION = "Exhibition"
+    UTILITY = "Utility"
 
 
 class ConstructionType(Enum):
@@ -339,6 +340,8 @@ def default_gfa(building_type: BuildingType) -> float:
             gfa = 1200
         case BuildingType.EXHIBITION.name:
             gfa = 40000
+        case BuildingType.UTILITY.name:
+            gfa = 1500
         case _:
             raise ValueError(
                 f"No default average footprint area is available for {building_type}."
@@ -428,6 +431,8 @@ def default_number_of_floors(building_type: BuildingType) -> float:
             n_floors = 1
         case BuildingType.EXHIBITION.name:
             n_floors = 2
+        case BuildingType.UTILITY.name:
+            n_floors = 1
         case _:
             raise ValueError(
                 f"No default average number of floors is available for {building_type}."
@@ -531,6 +536,8 @@ def default_floor_height(building_type: BuildingType) -> float:
             floor_height = 3.5
         case BuildingType.EXHIBITION.name:
             floor_height = 5
+        case BuildingType.UTILITY.name:
+            floor_height = 4
         case _:
             raise ValueError(
                 f"No default average floor height is available for {building_type}."
@@ -617,6 +624,8 @@ def default_construction_type(building_type: BuildingType) -> ConstructionType:
             constr_type = ConstructionType.MASS
         case BuildingType.EXHIBITION.name:
             constr_type = ConstructionType.STEEL_FRAMED
+        case BuildingType.UTILITY.name:
+            constr_type = ConstructionType.METAL_BUILDING
         case _:
             raise ValueError(
                 f"No default construction type is available for {building_type}."
@@ -703,6 +712,8 @@ def default_glazing_ratio(building_type: BuildingType) -> float:
             glazing_ratio = 0.3
         case BuildingType.EXHIBITION.name:
             glazing_ratio = 0.15
+        case BuildingType.UTILITY.name:
+            glazing_ratio = 0.05
         case _:
             raise ValueError(
                 f"No default glazing ratio is available for {building_type}."
@@ -789,6 +800,8 @@ def default_skylight_ratio(building_type: BuildingType) -> float:
             skylight_ratio = 0
         case BuildingType.EXHIBITION.name:
             skylight_ratio = 0
+        case BuildingType.UTILITY.name:
+            skylight_ratio = 0
         case _:
             raise ValueError(
                 f"No default skylight ratio is available for {building_type}."
@@ -827,7 +840,17 @@ def default_context_shade_distance(terrain_type: TerrainType) -> float:
 
 
 def default_program_type(building_type: BuildingType) -> ProgramType:
-    """Get the typical ProgramType for the building type."""
+    """Get the typical ProgramType for the building type.
+    
+    These methods come from a range of sources, but are typically based on ones
+    available in Honeybee's library of program types.
+
+    FIXME - For some reason, when creating a fully bespoke program-type, internal loads are not being
+    translated to IDF for simulation. This is a bug that needs to be fixed. For 
+    now I hope to bypass it by creating all programs based off of an existing 
+    one, and make the existing one only a very small part of the overall 
+    program so as not to influence end results too much!
+    """
 
     match building_type.name:
         case BuildingType.ACCOMODATION_APARTMENT_HIGHRISE.name:
@@ -846,28 +869,60 @@ def default_program_type(building_type: BuildingType) -> ProgramType:
         case BuildingType.CIVIC_COURTHOUSE.name:
             program = building_program_type_by_identifier(building_type.value)
         case BuildingType.DATACENTER_LARGE_HIGH_ITE.name:
-            program = building_program_type_by_identifier(building_type.value)
-            program.unlock()
-            program.setpoint.humidifying_setpoint = 45
-            program.setpoint.dehumidifying_setpoint = 55
+            # custom data center program, including 25% ancillary spaces
+            temp_program = building_program_type_by_identifier(building_type.value)
+            temp_program.unlock()
+            temp_program.setpoint.humidifying_setpoint = 45
+            temp_program.setpoint.dehumidifying_setpoint = 55
+            temp_program.lock()
+            bld_mix_dict = {
+                temp_program: 0.75,
+                program_type_by_identifier("2019::SmallOffice::OpenOffice"): 0.2,
+                program_type_by_identifier("2019::SmallOffice::Restroom"): 0.05,
+            }
+            program = ProgramType.average(temp_program.identifier, bld_mix_dict.keys(), bld_mix_dict.values())
             program.lock()
         case BuildingType.DATACENTER_LARGE_LOW_ITE.name:
-            program = building_program_type_by_identifier(building_type.value)
-            program.unlock()
-            program.setpoint.humidifying_setpoint = 45
-            program.setpoint.dehumidifying_setpoint = 55
+            # custom data center program, including 25% ancillary spaces
+            temp_program = building_program_type_by_identifier(building_type.value)
+            temp_program.unlock()
+            temp_program.setpoint.humidifying_setpoint = 45
+            temp_program.setpoint.dehumidifying_setpoint = 55
+            temp_program.lock()
+            bld_mix_dict = {
+                temp_program: 0.75,
+                program_type_by_identifier("2019::SmallOffice::OpenOffice"): 0.2,
+                program_type_by_identifier("2019::SmallOffice::Restroom"): 0.05,
+            }
+            program = ProgramType.average(temp_program.identifier, bld_mix_dict.keys(), bld_mix_dict.values())
             program.lock()
         case BuildingType.DATACENTER_SMALL_HIGH_ITE.name:
-            program = building_program_type_by_identifier(building_type.value)
-            program.unlock()
-            program.setpoint.humidifying_setpoint = 45
-            program.setpoint.dehumidifying_setpoint = 55
+            # custom data center program, including 25% ancillary spaces
+            temp_program = building_program_type_by_identifier(building_type.value)
+            temp_program.unlock()
+            temp_program.setpoint.humidifying_setpoint = 45
+            temp_program.setpoint.dehumidifying_setpoint = 55
+            temp_program.lock()
+            bld_mix_dict = {
+                temp_program: 0.75,
+                program_type_by_identifier("2019::SmallOffice::OpenOffice"): 0.2,
+                program_type_by_identifier("2019::SmallOffice::Restroom"): 0.05,
+            }
+            program = ProgramType.average(temp_program.identifier, bld_mix_dict.keys(), bld_mix_dict.values())
             program.lock()
         case BuildingType.DATACENTER_SMALL_LOW_ITE.name:
-            program = building_program_type_by_identifier(building_type.value)
-            program.unlock()
-            program.setpoint.humidifying_setpoint = 45
-            program.setpoint.dehumidifying_setpoint = 55
+            # custom data center program, including 25% ancillary spaces
+            temp_program = building_program_type_by_identifier(building_type.value)
+            temp_program.unlock()
+            temp_program.setpoint.humidifying_setpoint = 45
+            temp_program.setpoint.dehumidifying_setpoint = 55
+            temp_program.lock()
+            bld_mix_dict = {
+                temp_program: 0.75,
+                program_type_by_identifier("2019::SmallOffice::OpenOffice"): 0.2,
+                program_type_by_identifier("2019::SmallOffice::Restroom"): 0.05,
+            }
+            program = ProgramType.average(temp_program.identifier, bld_mix_dict.keys(), bld_mix_dict.values())
             program.lock()
         case BuildingType.HEALTHCARE_HOSPITAL.name:
             program = building_program_type_by_identifier(building_type.value)
@@ -903,188 +958,197 @@ def default_program_type(building_type: BuildingType) -> ProgramType:
             program = building_program_type_by_identifier(building_type.value)
         case BuildingType.CIVIC_CONCERT_HALL.name:
             # from AECOM. Cost Model: New-Build Concert Halls. LM00093-0817-v2.0, July 2017.
+            # also including a minimal similar predefined program to avoid the FIXME above
+            temp_program = building_program_type_by_identifier("Courthouse")
             bld_mix_dict = {
-                "2019::SecondarySchool::Auditorium": 0.20556,
-                "2019::Courthouse::Entrance Lobby": 0.11111,
-                "2019::QuickServiceRestaurant::Kitchen": 0.02778,
-                "2019::Retail::Point_of_Sale": 0.01944,
-                "2019::Courthouse::Restrooms": 0.01111,
-                "2019::SecondarySchool::Cafeteria": 0.02222,
-                "2019::Courthouse::Office": 0.06944,
-                "2019::College::Media Center": 0.04444,
-                "2019::Courthouse::Storage": 0.10278,
-                "2019::Hospital::PhysTherapy": 0.05278,
-                "2019::Courthouse::Corridor": 0.16667,
-                "2019::Courthouse::Service Shaft": 0.02,
-                "2019::SecondarySchool::Mechanical": 0.1,
-                "2019::Courthouse::Plenum": 0.04667,
+                temp_program: 0.01,
+                program_type_by_identifier("2019::SecondarySchool::Auditorium"): 0.20556,
+                program_type_by_identifier("2019::Courthouse::Entrance Lobby"): 0.10111,
+                program_type_by_identifier("2019::QuickServiceRestaurant::Kitchen"): 0.02778,
+                program_type_by_identifier("2019::Retail::Point_of_Sale"): 0.01944,
+                program_type_by_identifier("2019::Courthouse::Restrooms"): 0.01111,
+                program_type_by_identifier("2019::SecondarySchool::Cafeteria"): 0.02222,
+                program_type_by_identifier("2019::Courthouse::Office"): 0.06944,
+                program_type_by_identifier("2019::College::Media Center"): 0.04444,
+                program_type_by_identifier("2019::Courthouse::Storage"): 0.10278,
+                program_type_by_identifier("2019::Hospital::PhysTherapy"): 0.05278,
+                program_type_by_identifier("2019::Courthouse::Corridor"): 0.16667,
+                program_type_by_identifier("2019::Courthouse::Service Shaft"): 0.02,
+                program_type_by_identifier("2019::SecondarySchool::Mechanical"): 0.1,
+                program_type_by_identifier("2019::Courthouse::Plenum"): 0.04667,
             }
-            progs, ratios = [], []
-            for key, val in bld_mix_dict.items():
-                progs.append(program_type_by_identifier(key))
-                ratios.append(val)
-            program = ProgramType.average("ConcertHall", progs, ratios)
+            program = ProgramType.average("ConcertHall", bld_mix_dict.keys(), bld_mix_dict.values())
             program.lock()
         case BuildingType.PHYSICAL_EXERCISE.name:
             # from https://www.wbdg.org/space-types/physical-fitness-exercise-room'
+            # also including a minimal similar predefined program to avoid the FIXME above
+            temp_program = building_program_type_by_identifier("College")
             bld_mix_dict = {
-                "2019::College::Entrance Lobby": 0.01307,
-                "2019::Hospital::PhysTherapy": 0.13725,
-                "2019::LargeOffice::Restroom": 0.0915,
-                "2019::SecondarySchool::Gym": 0.70589,
-                "2019::College::Storage": 0.05229,
+                temp_program: 0.01,
+                program_type_by_identifier("2019::College::Entrance Lobby"): 0.01307,
+                program_type_by_identifier("2019::Hospital::PhysTherapy"): 0.13725,
+                program_type_by_identifier("2019::LargeOffice::Restroom"): 0.0915,
+                program_type_by_identifier("2019::SecondarySchool::Gym"): 0.70589,
+                program_type_by_identifier("2019::College::Storage"): 0.04229,
             }
-            progs, ratios = [], []
-            for key, val in bld_mix_dict.items():
-                progs.append(program_type_by_identifier(key))
-                ratios.append(val)
-            program = ProgramType.average("PhysicalExercise", progs, ratios)
+            program = ProgramType.average("PhysicalExercise", bld_mix_dict.keys(), bld_mix_dict.values())
             program.lock()
         case BuildingType.PHYSICAL_EVENTS.name:
             # from https://www.wbdg.org/space-types/auditorium
+            # also including a minimal similar predefined program to avoid the FIXME above
+            temp_program = building_program_type_by_identifier("Courthouse")
             bld_mix_dict = {
-                "2019::Courthouse::Entrance Lobby": 0.19473,
-                "2019::Courthouse::Storage": 0.0549,
-                "2019::SecondarySchool::Cafeteria": 0.0244,
-                "2019::SecondarySchool::Library": 0.0183,
-                "2019::SecondarySchool::Auditorium": 0.43924,
-                "2019::SecondarySchool::Gym": 0.14642,
-                "2019::College::Media Center": 0.08541,
-                "2019::Courthouse::Restrooms": 0.0366,
+                temp_program: 0.01,
+                program_type_by_identifier("2019::Courthouse::Entrance Lobby"): 0.19473,
+                program_type_by_identifier("2019::Courthouse::Storage"): 0.0449,
+                program_type_by_identifier("2019::SecondarySchool::Cafeteria"): 0.0244,
+                program_type_by_identifier("2019::SecondarySchool::Library"): 0.0183,
+                program_type_by_identifier("2019::SecondarySchool::Auditorium"): 0.43924,
+                program_type_by_identifier("2019::SecondarySchool::Gym"): 0.14642,
+                program_type_by_identifier("2019::College::Media Center"): 0.08541,
+                program_type_by_identifier("2019::Courthouse::Restrooms"): 0.0366,
             }
-            progs, ratios = [], []
-            for key, val in bld_mix_dict.items():
-                progs.append(program_type_by_identifier(key))
-                ratios.append(val)
-            program = ProgramType.average("PhysicalEvents", progs, ratios)
+            program = ProgramType.average("PhysicalExercise", bld_mix_dict.keys(), bld_mix_dict.values())
             program.lock()
         case BuildingType.RELIGIOUS.name:
             # from https://www.wbdg.org/space-types/place-worship
+            # also including a minimal similar predefined program to avoid the FIXME above
+            temp_program = building_program_type_by_identifier("Courthouse")
             bld_mix_dict = {
-                "2019::Courthouse::Courtroom": 0.49690,
-                "2019::Courthouse::Storage": 0.05797,
-                "2019::Courthouse::Office": 0.10352,
-                "2019::Courthouse::Utility": 0.16770,
-                "2019::Courthouse::Corridor": 0.17391,
+                temp_program: 0.01,
+                program_type_by_identifier("2019::Courthouse::Courtroom"): 0.4620950042777964,
+                program_type_by_identifier("2019::Courthouse::Storage"): 0.043909533906186066,
+                program_type_by_identifier("2019::Courthouse::Office"): 0.09626901759476249,
+                program_type_by_identifier("2019::Courthouse::Utility"): 0.15595357660975337,
+                program_type_by_identifier("2019::Courthouse::Corridor"): 0.16172860171855818,
+                program_type_by_identifier("2019::Courthouse::Restrooms"): 0.07004426589294349
             }
-            progs, ratios = [], []
-            for key, val in bld_mix_dict.items():
-                progs.append(program_type_by_identifier(key))
-                ratios.append(val)
-            program = ProgramType.average("Religious", progs, ratios)
+            program = ProgramType.average("Religious", bld_mix_dict.keys(), bld_mix_dict.values())
             program.lock()
         case BuildingType.INDUSTRY_LIGHT.name:
             # from https://www.wbdg.org/space-types/light-industrial
+            # also including a minimal similar predefined program to avoid the FIXME above
+            temp_program = building_program_type_by_identifier("SmallOffice")
             bld_mix_dict = {
-                "2019::Warehouse::Office": 0.01125,
-                "2019::Warehouse::Bulk": 0.62627,
-                "2019::SmallDataCenterLowITE::ComputerRoom": 0.25,
-                "2019::Warehouse::Fine": 0.11248,
+                temp_program: 0.011,
+                program_type_by_identifier("2019::Courthouse::Courtroom"): 0.4620950042777964,
+                program_type_by_identifier("2019::Courthouse::Storage"): 0.044909533906186066,
+                program_type_by_identifier("2019::Courthouse::Office"): 0.08626901759476249,
+                program_type_by_identifier("2019::Courthouse::Utility"): 0.15595357660975337,
+                program_type_by_identifier("2019::Courthouse::Corridor"): 0.16172860171855818,
+                program_type_by_identifier("2019::Courthouse::Restrooms"): 0.07004426589294349
             }
-            progs, ratios = [], []
-            for key, val in bld_mix_dict.items():
-                progs.append(program_type_by_identifier(key))
-                ratios.append(val)
-            program = ProgramType.average("LightIndustry", progs, ratios)
+            program = ProgramType.average("LightIndustry", bld_mix_dict.keys(), bld_mix_dict.values())
             program.lock()
         case BuildingType.PARKING.name:
             # from ... an approximation
+            # also including a minimal similar predefined program to avoid the FIXME above
+            temp_program = building_program_type_by_identifier("Warehouse")
             bld_mix_dict = {
-                "2019::Courthouse::Parking": 0.95000,
-                "2019::SuperMarket::Elec/MechRoom": 0.05000,
+                temp_program: 0.01,
+                program_type_by_identifier("2019::Courthouse::Parking"): 0.94000,
+                program_type_by_identifier("2019::SuperMarket::Elec/MechRoom"): 0.05000,
             }
-            progs, ratios = [], []
-            for key, val in bld_mix_dict.items():
-                progs.append(program_type_by_identifier(key))
-                ratios.append(val)
-            program = ProgramType.average("Parking", progs, ratios)
+            program = ProgramType.average("Parking", bld_mix_dict.keys(), bld_mix_dict.values())
             program.lock()
         case BuildingType.CIVIC_LIBRARY.name:
             #  from https://www.wbdg.org/space-types/library
+            # also including a minimal similar predefined program to avoid the FIXME above
+            temp_program = building_program_type_by_identifier("Warehouse")
             bld_mix_dict = {
-                "2019::College::Entrance Lobby": 0.0594,
-                "2019::Courthouse::Jury Deliberation": 0.02121,
-                "2019::LargeOffice::PrintRoom": 0.09418,
-                "2019::Courthouse::Office": 0.18244,
-                "2019::College::Media Center": 0.1171,
-                "2019::Courthouse::Library": 0.39839,
-                "2019::College::Lounge": 0.11031,
-                "2019::Courthouse::Utility": 0.01697,
+                temp_program: 0.01,
+                program_type_by_identifier("2019::College::Entrance Lobby"): 0.057115384615384616,
+                program_type_by_identifier("2019::Courthouse::Jury Deliberation"): 0.02039423076923077,
+                program_type_by_identifier("2019::LargeOffice::PrintRoom"): 0.09055769230769231,
+                program_type_by_identifier("2019::Courthouse::Office"): 0.1754230769230769,
+                program_type_by_identifier("2019::College::Media Center"): 0.10259615384615383,
+                program_type_by_identifier("2019::Courthouse::Library"): 0.3830673076923077,
+                program_type_by_identifier("2019::College::Lounge"): 0.1060673076923077,
+                program_type_by_identifier("2019::Courthouse::Utility"): 0.01631730769230769,
+                program_type_by_identifier("2019::SmallOffice::Restroom"): 0.038461538461538464
             }
-            progs, ratios = [], []
-            for key, val in bld_mix_dict.items():
-                progs.append(program_type_by_identifier(key))
-                ratios.append(val)
-            program = ProgramType.average("Library", progs, ratios)
+            program = ProgramType.average("Library", bld_mix_dict.keys(), bld_mix_dict.values())
             program.lock()
         case BuildingType.EXHIBITION.name:
             # from https://www.wbdg.org/space-types/exhibition-center
+            # also including a minimal similar predefined program to avoid the FIXME above
+            temp_program = building_program_type_by_identifier("College")
             bld_mix_dict = {
-                "2019::Courthouse::Entrance Lobby": 0.19473,
-                "2019::Courthouse::Storage": 0.0549,
-                "2019::SecondarySchool::Cafeteria": 0.0244,
-                "2019::SecondarySchool::Library": 0.43924,
-                "2019::SecondarySchool::Auditorium": 0.0183,
-                "2019::College::Media Center": 0.08541,
-                "2019::Courthouse::Restrooms": 0.0366,
-                "2019::Courthouse::Office": 0.14642,
+                temp_program: 0.01,
+                program_type_by_identifier("2019::Courthouse::Entrance Lobby"): 0.18473,
+                program_type_by_identifier("2019::Courthouse::Storage"): 0.0549,
+                program_type_by_identifier("2019::SecondarySchool::Cafeteria"): 0.0244,
+                program_type_by_identifier("2019::SecondarySchool::Library"): 0.43924,
+                program_type_by_identifier("2019::SecondarySchool::Auditorium"): 0.0183,
+                program_type_by_identifier("2019::College::Media Center"): 0.08541,
+                program_type_by_identifier("2019::SecondarySchool::Restroom"): 0.0366,
+                program_type_by_identifier("2019::Courthouse::Office"): 0.14642,
             }
-            progs, ratios = [], []
-            for key, val in bld_mix_dict.items():
-                progs.append(program_type_by_identifier(key))
-                ratios.append(val)
-            program = ProgramType.average("Exhibition", progs, ratios)
+            program = ProgramType.average("Exhibition", bld_mix_dict.keys(), bld_mix_dict.values())
+            program.lock()
+        case BuildingType.UTILITY.name:
+            # a modified "Warehouse" program, to include hot water
+            # also including a minimal similar predefined program to avoid the FIXME above
+            temp_program = building_program_type_by_identifier("Warehouse")
+            bld_mix_dict = {
+                temp_program: 0.01,
+                program_type_by_identifier("2019::Warehouse::Bulk"): 0.8701503803816287,
+                program_type_by_identifier("2019::Warehouse::Office"): 0.06431501768987902,
+                program_type_by_identifier("2019::MediumOffice::Restroom"): 0.01835419141827538,
+                program_type_by_identifier("2019::MediumOffice::Elec/MechRoom"): 0.037180410510216796,
+            }
+            program = ProgramType.average("Library", bld_mix_dict.keys(), bld_mix_dict.values())
             program.lock()
         case _:
             raise ValueError(f"No default program is available for {building_type}.")
     return program
 
-def default_number_of_lifts(building_type: BuildingType, n_floors: float = None, building_area: float = None) -> int:
-    """Approximate the number of lifts needed for the building type.
+# def default_number_of_lifts(building_type: BuildingType, n_floors: float = None, building_area: float = None) -> int:
+#     """Approximate the number of lifts needed for the building type.
     
-    Several inputs are given, but not all are needed for all calculations.
+#     Several inputs are given, but not all are needed for all calculations.
 
-    Returns:
-        int:
-            The number of lifts needed for the building type (and configuration)
-    """
+#     Returns:
+#         int:
+#             The number of lifts needed for the building type (and configuration)
+#     """
 
-    if n_floors <= 1:
-        return 0
+#     if n_floors <= 1:
+#         return 0
     
-    match building_type.name:
-        case BuildingType.ACCOMODATION_APARTMENT_HIGHRISE.name | BuildingType.ACCOMODATION_APARTMENT_MIDRISE.name | BuildingType.ACCOMODATION_HOUSE_LOWRISE.name:
-            # TODO - estimate number of lifts for highrise apartment
-            # Based on the number of units, with typical unit area of 75m2
-            lifts = 1
-        case BuildingType.EDUCATION_COLLEGE.name | BuildingType.EDUCATION_SCHOOL_PRIMARY.name | BuildingType.EDUCATION_SCHOOL_SECONDARY.name:
-            # TODO - estimate number of lifts for school
-            lifts = 1
-        case BuildingType.CIVIC_LIBRARY.name | BuildingType.CIVIC_COURTHOUSE.name:
-            lifts = 1
-        case BuildingType.INDUSTRY_WAREHOUSE.name | BuildingType.INDUSTRY_LIGHT.name | BuildingType.DATACENTER_LARGE_HIGH_ITE.name | BuildingType.DATACENTER_LARGE_LOW_ITE.name | BuildingType.DATACENTER_SMALL_HIGH_ITE.name | BuildingType.DATACENTER_SMALL_LOW_ITE.name:
-            lifts = 1
-        case BuildingType.HEALTHCARE_HOSPITAL.name | BuildingType.HEALTHCARE_OUTPATIENT.name:
-            lifts = 1
-        case BuildingType.ACCOMODATION_HOTEL_LARGE.name | BuildingType.ACCOMODATION_HOTEL_SMALL.name:
-            lifts = 1
-        case BuildingType.LABORATORY.name:
-            lifts = 1
-        case BuildingType.COMMERCIAL_OFFICE_LARGE.name | BuildingType.COMMERCIAL_OFFICE_MEDIUM.name | BuildingType.COMMERCIAL_OFFICE_SMALL.name:
-            lifts = 1
-        case BuildingType.COMMERCIAL_RESTAURANT_FULL_SERVICE.name:
-            lifts = 1
-        case BuildingType.COMMERCIAL_RESTAURANT_QUICK_SERVICE.name | BuildingType.COMMERCIAL_RETAIL.name | BuildingType.COMMERCIAL_STRIP_MALL.name | BuildingType.COMMERCIAL_SUPERMARKET.name:
-            lifts = 1
-        case BuildingType.EXHIBITION.name | BuildingType.CIVIC_CONCERT_HALL.name | BuildingType.PHYSICAL_EVENTS.name | BuildingType.RELIGIOUS.name:
-            lifts = 1
-        case BuildingType.PHYSICAL_EXERCISE.name:
-            lifts = 1
-        case BuildingType.PARKING.name:
-            lifts = 1
-        case _:
-            raise ValueError(f"No default number of lifts is available for {building_type}.")
-    return lifts
+#     match building_type.name:
+#         case BuildingType.ACCOMODATION_APARTMENT_HIGHRISE.name | BuildingType.ACCOMODATION_APARTMENT_MIDRISE.name | BuildingType.ACCOMODATION_HOUSE_LOWRISE.name:
+#             # TODO - estimate number of lifts for highrise apartment
+#             # Based on the number of units, with typical unit area of 75m2
+#             lifts = 1
+#         case BuildingType.EDUCATION_COLLEGE.name | BuildingType.EDUCATION_SCHOOL_PRIMARY.name | BuildingType.EDUCATION_SCHOOL_SECONDARY.name:
+#             # TODO - estimate number of lifts for school
+#             lifts = 1
+#         case BuildingType.CIVIC_LIBRARY.name | BuildingType.CIVIC_COURTHOUSE.name:
+#             lifts = 1
+#         case BuildingType.INDUSTRY_WAREHOUSE.name | BuildingType.INDUSTRY_LIGHT.name | BuildingType.DATACENTER_LARGE_HIGH_ITE.name | BuildingType.DATACENTER_LARGE_LOW_ITE.name | BuildingType.DATACENTER_SMALL_HIGH_ITE.name | BuildingType.DATACENTER_SMALL_LOW_ITE.name:
+#             lifts = 1
+#         case BuildingType.HEALTHCARE_HOSPITAL.name | BuildingType.HEALTHCARE_OUTPATIENT.name:
+#             lifts = 1
+#         case BuildingType.ACCOMODATION_HOTEL_LARGE.name | BuildingType.ACCOMODATION_HOTEL_SMALL.name:
+#             lifts = 1
+#         case BuildingType.LABORATORY.name:
+#             lifts = 1
+#         case BuildingType.COMMERCIAL_OFFICE_LARGE.name | BuildingType.COMMERCIAL_OFFICE_MEDIUM.name | BuildingType.COMMERCIAL_OFFICE_SMALL.name:
+#             lifts = 1
+#         case BuildingType.COMMERCIAL_RESTAURANT_FULL_SERVICE.name:
+#             lifts = 1
+#         case BuildingType.COMMERCIAL_RESTAURANT_QUICK_SERVICE.name | BuildingType.COMMERCIAL_RETAIL.name | BuildingType.COMMERCIAL_STRIP_MALL.name | BuildingType.COMMERCIAL_SUPERMARKET.name:
+#             lifts = 1
+#         case BuildingType.EXHIBITION.name | BuildingType.CIVIC_CONCERT_HALL.name | BuildingType.PHYSICAL_EVENTS.name | BuildingType.RELIGIOUS.name:
+#             lifts = 1
+#         case BuildingType.PHYSICAL_EXERCISE.name:
+#             lifts = 1
+#         case BuildingType.PARKING.name:
+#             lifts = 1
+#         case _:
+#             raise ValueError(f"No default number of lifts is available for {building_type}.")
+#     return lifts
 
 
 def default_constructionset(
@@ -1195,268 +1259,268 @@ def default_pump_power(building_type: BuildingType, vintage: Vintage) -> float:
     ].squeeze()["pump_power"].values[0]
 
 
-def default_hvac_system(building_type: BuildingType, epw: EPW, vintage: Vintage) -> None:
-    """Get the typical HVAC system for the building type, vintage and climate."""
+# def default_hvac_system(building_type: BuildingType, epw: EPW, vintage: Vintage) -> None:
+#     """Get the typical HVAC system for the building type, vintage and climate."""
 
-    raise NotImplementedError("This function is not yet implemented.")
+#     raise NotImplementedError("This function is not yet implemented.")
     
-    ashrae_climate = int(epw.ashrae_climate_zone[0])
+#     ashrae_climate = int(epw.ashrae_climate_zone[0])
 
-    sys = DEFAULT_SYSTEMS[
-        (DEFAULT_SYSTEMS.building_type == building_type.name)
-        & (DEFAULT_SYSTEMS.vintage == vintage.name)
-        & (DEFAULT_SYSTEMS.ashrae_climate == ashrae_climate)
-    ].squeeze()["default_system"]
+#     sys = DEFAULT_SYSTEMS[
+#         (DEFAULT_SYSTEMS.building_type == building_type.name)
+#         & (DEFAULT_SYSTEMS.vintage == vintage.name)
+#         & (DEFAULT_SYSTEMS.ashrae_climate == ashrae_climate)
+#     ].squeeze()["default_system"]
 
-    # dictionary of HVAC template names
-    ext_folder = hbe_folders.standards_extension_folders[0]
-    hvac_reg = Path(ext_folder) / 'hvac_registry.json'
-    with open(hvac_reg, 'r') as f:
-        hvac_dict = json.load(f)
+#     # dictionary of HVAC template names
+#     ext_folder = hbe_folders.standards_extension_folders[0]
+#     hvac_reg = Path(ext_folder) / 'hvac_registry.json'
+#     with open(hvac_reg, 'r') as f:
+#         hvac_dict = json.load(f)
     
-    # create the default ideal_air system
-    shr, lhr = default_hr_effectiveness(building_type, epw, vintage)
-    ideal_air = IdealAirSystem(
-        identifier=f"{building_type.value}_IdealAirSystem",
-        economizer_type=default_economizer_type(building_type, epw, vintage).value,
-        demand_controlled_ventilation=default_demand_controlled_ventilation(building_type, vintage),
-        sensible_heat_recovery=shr,
-        latent_heat_recovery=lhr
-    )
+#     # create the default ideal_air system
+#     shr, lhr = default_hr_effectiveness(building_type, epw, vintage)
+#     ideal_air = IdealAirSystem(
+#         identifier=f"{building_type.value}_IdealAirSystem",
+#         economizer_type=default_economizer_type(building_type, epw, vintage).value,
+#         demand_controlled_ventilation=default_demand_controlled_ventilation(building_type, vintage),
+#         sensible_heat_recovery=shr,
+#         latent_heat_recovery=lhr
+#     )
 
-    return ideal_air
+#     return ideal_air
 
-class LiftUsageIntensity(Enum):
-    """The usage intensity of a lift, based on ISO 25745-2:2015."""
-    VeryLow = auto()
-    Low = auto()
-    Medium = auto()
-    High = auto()
-    VeryHigh = auto()
-    ExtremelyHigh = auto()
+# class LiftUsageIntensity(Enum):
+#     """The usage intensity of a lift, based on ISO 25745-2:2015."""
+#     VeryLow = auto()
+#     Low = auto()
+#     Medium = auto()
+#     High = auto()
+#     VeryHigh = auto()
+#     ExtremelyHigh = auto()
 
-    def trips_per_day(self) -> int:
-        """The number of trips per day (n_d) for the usage intensity."""
-        return {
-            LiftUsageIntensity.VeryLow.name: 50,
-            LiftUsageIntensity.Low.name: 125,
-            LiftUsageIntensity.Medium.name: 300,
-            LiftUsageIntensity.High.name: 750,
-            LiftUsageIntensity.VeryHigh.name: 1500,
-            LiftUsageIntensity.ExtremelyHigh.name: 2500
-        }[self.name]
+#     def trips_per_day(self) -> int:
+#         """The number of trips per day (n_d) for the usage intensity."""
+#         return {
+#             LiftUsageIntensity.VeryLow.name: 50,
+#             LiftUsageIntensity.Low.name: 125,
+#             LiftUsageIntensity.Medium.name: 300,
+#             LiftUsageIntensity.High.name: 750,
+#             LiftUsageIntensity.VeryHigh.name: 1500,
+#             LiftUsageIntensity.ExtremelyHigh.name: 2500
+#         }[self.name]
     
-    def typical_range(self) -> tuple[float]:
-        """The typical range of the lift (m)."""
-        return {
-            LiftUsageIntensity.VeryLow.name: (0, 75),
-            LiftUsageIntensity.Low.name: (75, 200),
-            LiftUsageIntensity.Medium.name: (200, 500),
-            LiftUsageIntensity.High.name: (500, 1000),
-            LiftUsageIntensity.VeryHigh.name: (1000, 2000),
-            LiftUsageIntensity.ExtremelyHigh.name: (2000, np.inf)
-        }[self.name]
+#     def typical_range(self) -> tuple[float]:
+#         """The typical range of the lift (m)."""
+#         return {
+#             LiftUsageIntensity.VeryLow.name: (0, 75),
+#             LiftUsageIntensity.Low.name: (75, 200),
+#             LiftUsageIntensity.Medium.name: (200, 500),
+#             LiftUsageIntensity.High.name: (500, 1000),
+#             LiftUsageIntensity.VeryHigh.name: (1000, 2000),
+#             LiftUsageIntensity.ExtremelyHigh.name: (2000, np.inf)
+#         }[self.name]
     
-    def percentage_average_travel_distance(self, n_floors: int) -> float:
-        """The average travel distance (s_av) for the usage intensity, as a 
-        percentage of the total height of the building.
+#     def percentage_average_travel_distance(self, n_floors: int) -> float:
+#         """The average travel distance (s_av) for the usage intensity, as a 
+#         percentage of the total height of the building.
         
-        Args:
-            n_floors (int): The number of floors in the building.
+#         Args:
+#             n_floors (int): The number of floors in the building.
 
-        Returns:
-            float: The average travel distance as a percentage of the total 
-                height of the building.
-        """
+#         Returns:
+#             float: The average travel distance as a percentage of the total 
+#                 height of the building.
+#         """
 
-        if n_floors < 2:
-            raise ValueError("The number of floors must be greater than 1.")
+#         if n_floors < 2:
+#             raise ValueError("The number of floors must be greater than 1.")
         
-        if n_floors == 2:
-            return 1
+#         if n_floors == 2:
+#             return 1
         
-        if n_floors == 3:
-            return 0.67
+#         if n_floors == 3:
+#             return 0.67
         
-        return {
-            LiftUsageIntensity.VeryLow.name: 0.49,
-            LiftUsageIntensity.Low.name: 0.49,
-            LiftUsageIntensity.Medium.name: 0.49,
-            LiftUsageIntensity.High.name: 0.44,
-            LiftUsageIntensity.VeryHigh.name: 0.39,
-            LiftUsageIntensity.ExtremelyHigh.name: 0.32
-        }[self.name]
+#         return {
+#             LiftUsageIntensity.VeryLow.name: 0.49,
+#             LiftUsageIntensity.Low.name: 0.49,
+#             LiftUsageIntensity.Medium.name: 0.49,
+#             LiftUsageIntensity.High.name: 0.44,
+#             LiftUsageIntensity.VeryHigh.name: 0.39,
+#             LiftUsageIntensity.ExtremelyHigh.name: 0.32
+#         }[self.name]
     
-    def average_car_load(self, rated_load: float) -> float:
-        """The average car load (m) for the usage intensity.
+#     def average_car_load(self, rated_load: float) -> float:
+#         """The average car load (m) for the usage intensity.
         
-        Args:
-            rated_load (float): The rated load of the lift (kg).
+#         Args:
+#             rated_load (float): The rated load of the lift (kg).
 
-        Returns:
-            float: The percentage of rated car load (for use in estimating 
-            the load factor (k_L)).
-        """
-        if rated_load <= 800:
-            return {
-                LiftUsageIntensity.VeryLow.name: 0.075,
-                LiftUsageIntensity.Low.name: 0.075,
-                LiftUsageIntensity.Medium.name: 7.5,
-                LiftUsageIntensity.High.name: 0.09,
-                LiftUsageIntensity.VeryHigh.name: 0.16,
-                LiftUsageIntensity.ExtremelyHigh.name: 0.16
-            }[self.name]
+#         Returns:
+#             float: The percentage of rated car load (for use in estimating 
+#             the load factor (k_L)).
+#         """
+#         if rated_load <= 800:
+#             return {
+#                 LiftUsageIntensity.VeryLow.name: 0.075,
+#                 LiftUsageIntensity.Low.name: 0.075,
+#                 LiftUsageIntensity.Medium.name: 7.5,
+#                 LiftUsageIntensity.High.name: 0.09,
+#                 LiftUsageIntensity.VeryHigh.name: 0.16,
+#                 LiftUsageIntensity.ExtremelyHigh.name: 0.16
+#             }[self.name]
 
-        if rated_load <= 1275:
-            return {
-                LiftUsageIntensity.VeryLow.name: 0.045,
-                LiftUsageIntensity.Low.name: 0.045,
-                LiftUsageIntensity.Medium.name: 0.045,
-                LiftUsageIntensity.High.name: 0.06,
-                LiftUsageIntensity.VeryHigh.name: 0.11,
-                LiftUsageIntensity.ExtremelyHigh.name: 0.11
-            }[self.name]
+#         if rated_load <= 1275:
+#             return {
+#                 LiftUsageIntensity.VeryLow.name: 0.045,
+#                 LiftUsageIntensity.Low.name: 0.045,
+#                 LiftUsageIntensity.Medium.name: 0.045,
+#                 LiftUsageIntensity.High.name: 0.06,
+#                 LiftUsageIntensity.VeryHigh.name: 0.11,
+#                 LiftUsageIntensity.ExtremelyHigh.name: 0.11
+#             }[self.name]
         
-        if rated_load <= 2000:
-            return {
-                LiftUsageIntensity.VeryLow.name: 0.03,
-                LiftUsageIntensity.Low.name: 0.03,
-                LiftUsageIntensity.Medium.name: 0.03,
-                LiftUsageIntensity.High.name: 0.035,
-                LiftUsageIntensity.VeryHigh.name: 0.07,
-                LiftUsageIntensity.ExtremelyHigh.name: 0.07
-            }[self.name]
+#         if rated_load <= 2000:
+#             return {
+#                 LiftUsageIntensity.VeryLow.name: 0.03,
+#                 LiftUsageIntensity.Low.name: 0.03,
+#                 LiftUsageIntensity.Medium.name: 0.03,
+#                 LiftUsageIntensity.High.name: 0.035,
+#                 LiftUsageIntensity.VeryHigh.name: 0.07,
+#                 LiftUsageIntensity.ExtremelyHigh.name: 0.07
+#             }[self.name]
 
-        return {
-            LiftUsageIntensity.VeryLow.name: 0.02,
-            LiftUsageIntensity.Low.name: 0.02,
-            LiftUsageIntensity.Medium.name: 0.02,
-            LiftUsageIntensity.High.name: 0.022,
-            LiftUsageIntensity.VeryHigh.name: 0.045,
-            LiftUsageIntensity.ExtremelyHigh.name: 0.045
-        }[self.name]
+#         return {
+#             LiftUsageIntensity.VeryLow.name: 0.02,
+#             LiftUsageIntensity.Low.name: 0.02,
+#             LiftUsageIntensity.Medium.name: 0.02,
+#             LiftUsageIntensity.High.name: 0.022,
+#             LiftUsageIntensity.VeryHigh.name: 0.045,
+#             LiftUsageIntensity.ExtremelyHigh.name: 0.045
+#         }[self.name]
     
-    def average_travel_time(self) -> float:
-        """Return the decimal hours over a single day when travel occurs. 
-        Values given are <=X where X is hours-per-day."""
-        return {
-            LiftUsageIntensity.VeryLow.name: 0.2,
-            LiftUsageIntensity.Low.name: 0.5,
-            LiftUsageIntensity.Medium.name: 1.5,
-            LiftUsageIntensity.High.name: 3,
-            LiftUsageIntensity.VeryHigh.name: 6,
-            LiftUsageIntensity.ExtremelyHigh.name: 12
-        }[self.name]
+#     def average_travel_time(self) -> float:
+#         """Return the decimal hours over a single day when travel occurs. 
+#         Values given are <=X where X is hours-per-day."""
+#         return {
+#             LiftUsageIntensity.VeryLow.name: 0.2,
+#             LiftUsageIntensity.Low.name: 0.5,
+#             LiftUsageIntensity.Medium.name: 1.5,
+#             LiftUsageIntensity.High.name: 3,
+#             LiftUsageIntensity.VeryHigh.name: 6,
+#             LiftUsageIntensity.ExtremelyHigh.name: 12
+#         }[self.name]
 
-    def average_standby_time(self) -> float:
-        """Return the decimal hours over a single day when standby occurs."""
-        return 24 - self.average_travel_time()
+#     def average_standby_time(self) -> float:
+#         """Return the decimal hours over a single day when standby occurs."""
+#         return 24 - self.average_travel_time()
 
-class LiftEnergyEfficiency(Enum):
-    """According to VDI 4707 2009-3"""
-    A = auto()
-    B = auto()
-    C = auto()
-    D = auto()
-    E = auto()
-    F = auto()
-    G = auto()
+# class LiftEnergyEfficiency(Enum):
+#     """According to VDI 4707 2009-3"""
+#     A = auto()
+#     B = auto()
+#     C = auto()
+#     D = auto()
+#     E = auto()
+#     F = auto()
+#     G = auto()
 
-    def standby_consumption(self) -> float:
-        """Return the standby power demand in W."""
-        return {
-            LiftEnergyEfficiency.A.name: 50,
-            LiftEnergyEfficiency.B.name: 100,
-            LiftEnergyEfficiency.C.name: 200,
-            LiftEnergyEfficiency.D.name: 400,
-            LiftEnergyEfficiency.E.name: 800,
-            LiftEnergyEfficiency.F.name: 1600,
-            LiftEnergyEfficiency.G.name: 3200,
-        }[self.name]
+#     def standby_consumption(self) -> float:
+#         """Return the standby power demand in W."""
+#         return {
+#             LiftEnergyEfficiency.A.name: 50,
+#             LiftEnergyEfficiency.B.name: 100,
+#             LiftEnergyEfficiency.C.name: 200,
+#             LiftEnergyEfficiency.D.name: 400,
+#             LiftEnergyEfficiency.E.name: 800,
+#             LiftEnergyEfficiency.F.name: 1600,
+#             LiftEnergyEfficiency.G.name: 3200,
+#         }[self.name]
     
-    def operational_consumption(self) -> float:
-        """Return the operational energy demand per travel in mWh/(kg.m)."""
-        return {
-            LiftEnergyEfficiency.A.name: 0.56,
-            LiftEnergyEfficiency.B.name: 0.84,
-            LiftEnergyEfficiency.C.name: 1.26,
-            LiftEnergyEfficiency.D.name: 1.89,
-            LiftEnergyEfficiency.E.name: 2.8,
-            LiftEnergyEfficiency.F.name: 4.2,
-            LiftEnergyEfficiency.G.name: 8.4,
-        }[self.name]
+#     def operational_consumption(self) -> float:
+#         """Return the operational energy demand per travel in mWh/(kg.m)."""
+#         return {
+#             LiftEnergyEfficiency.A.name: 0.56,
+#             LiftEnergyEfficiency.B.name: 0.84,
+#             LiftEnergyEfficiency.C.name: 1.26,
+#             LiftEnergyEfficiency.D.name: 1.89,
+#             LiftEnergyEfficiency.E.name: 2.8,
+#             LiftEnergyEfficiency.F.name: 4.2,
+#             LiftEnergyEfficiency.G.name: 8.4,
+#         }[self.name]
 
 
-def default_lift_usage_intensity(building_type: BuildingType) -> LiftUsageIntensity:
-    match building_type.name:
-        case BuildingType.ACCOMODATION_APARTMENT_HIGHRISE.name:
-            usage_intensity = LiftUsageIntensity.High
-        case BuildingType.ACCOMODATION_APARTMENT_MIDRISE.name:
-            usage_intensity = LiftUsageIntensity.Medium
-        case BuildingType.EDUCATION_COLLEGE.name:
-            usage_intensity = LiftUsageIntensity.Low
-        case BuildingType.CIVIC_COURTHOUSE.name:
-            usage_intensity = LiftUsageIntensity.Low
-        case BuildingType.DATACENTER_LARGE_HIGH_ITE.name:
-            usage_intensity = LiftUsageIntensity.VeryLow
-        case BuildingType.DATACENTER_LARGE_LOW_ITE.name:
-            usage_intensity = LiftUsageIntensity.VeryLow
-        case BuildingType.DATACENTER_SMALL_HIGH_ITE.name:
-            usage_intensity = LiftUsageIntensity.VeryLow
-        case BuildingType.DATACENTER_SMALL_LOW_ITE.name:
-            usage_intensity = LiftUsageIntensity.VeryLow
-        case BuildingType.HEALTHCARE_HOSPITAL.name:
-            usage_intensity = LiftUsageIntensity.High
-        case BuildingType.ACCOMODATION_HOTEL_LARGE.name:
-            usage_intensity = LiftUsageIntensity.High
-        case BuildingType.ACCOMODATION_HOTEL_SMALL.name:
-            usage_intensity = LiftUsageIntensity.Medium
-        case BuildingType.LABORATORY.name:
-            usage_intensity = LiftUsageIntensity.Low
-        case BuildingType.COMMERCIAL_OFFICE_LARGE.name:
-            usage_intensity = LiftUsageIntensity.VeryHigh
-        case BuildingType.COMMERCIAL_OFFICE_MEDIUM.name:
-            usage_intensity = LiftUsageIntensity.High
-        case BuildingType.COMMERCIAL_OFFICE_SMALL.name:
-            usage_intensity = LiftUsageIntensity.Medium
-        case BuildingType.HEALTHCARE_OUTPATIENT.name:
-            usage_intensity = LiftUsageIntensity.High
-        case BuildingType.COMMERCIAL_RESTAURANT_FULL_SERVICE.name:
-            usage_intensity = LiftUsageIntensity.Low
-        case BuildingType.COMMERCIAL_RESTAURANT_QUICK_SERVICE.name:
-            usage_intensity = LiftUsageIntensity.VeryLow
-        case BuildingType.COMMERCIAL_RETAIL.name:
-            usage_intensity = LiftUsageIntensity.Medium
-        case BuildingType.EDUCATION_SCHOOL_PRIMARY.name:
-            usage_intensity = LiftUsageIntensity.VeryLow
-        case BuildingType.EDUCATION_SCHOOL_SECONDARY.name:
-            usage_intensity = LiftUsageIntensity.Low
-        case BuildingType.COMMERCIAL_STRIP_MALL.name:
-            usage_intensity = LiftUsageIntensity.Medium
-        case BuildingType.COMMERCIAL_SUPERMARKET.name:
-            usage_intensity = LiftUsageIntensity.Low
-        case BuildingType.INDUSTRY_WAREHOUSE.name:
-            usage_intensity = LiftUsageIntensity.VeryLow
-        case BuildingType.ACCOMODATION_HOUSE_LOWRISE.name:
-            usage_intensity = LiftUsageIntensity.VeryLow
-        case BuildingType.CIVIC_CONCERT_HALL.name:
-            usage_intensity = LiftUsageIntensity.Medium
-        case BuildingType.PHYSICAL_EXERCISE.name:
-            usage_intensity = LiftUsageIntensity.Low
-        case BuildingType.PHYSICAL_EVENTS.name:
-            usage_intensity = LiftUsageIntensity.Medium
-        case BuildingType.RELIGIOUS.name:
-            usage_intensity = LiftUsageIntensity.Medium
-        case BuildingType.INDUSTRY_LIGHT.name:
-            usage_intensity = LiftUsageIntensity.VeryLow
-        case BuildingType.PARKING.name:
-            usage_intensity = LiftUsageIntensity.Low
-        case BuildingType.CIVIC_LIBRARY.name:
-            usage_intensity = LiftUsageIntensity.Low
-        case BuildingType.EXHIBITION.name:
-            usage_intensity = LiftUsageIntensity.Medium
-        case _:
-            raise ValueError(
-                f"No default lift usage intensity is available for {building_type}."
-            )
-    return float(usage_intensity)
+# def default_lift_usage_intensity(building_type: BuildingType) -> LiftUsageIntensity:
+    # match building_type.name:
+    #     case BuildingType.ACCOMODATION_APARTMENT_HIGHRISE.name:
+    #         usage_intensity = LiftUsageIntensity.High
+    #     case BuildingType.ACCOMODATION_APARTMENT_MIDRISE.name:
+    #         usage_intensity = LiftUsageIntensity.Medium
+    #     case BuildingType.EDUCATION_COLLEGE.name:
+    #         usage_intensity = LiftUsageIntensity.Low
+    #     case BuildingType.CIVIC_COURTHOUSE.name:
+    #         usage_intensity = LiftUsageIntensity.Low
+    #     case BuildingType.DATACENTER_LARGE_HIGH_ITE.name:
+    #         usage_intensity = LiftUsageIntensity.VeryLow
+    #     case BuildingType.DATACENTER_LARGE_LOW_ITE.name:
+    #         usage_intensity = LiftUsageIntensity.VeryLow
+    #     case BuildingType.DATACENTER_SMALL_HIGH_ITE.name:
+    #         usage_intensity = LiftUsageIntensity.VeryLow
+    #     case BuildingType.DATACENTER_SMALL_LOW_ITE.name:
+    #         usage_intensity = LiftUsageIntensity.VeryLow
+    #     case BuildingType.HEALTHCARE_HOSPITAL.name:
+    #         usage_intensity = LiftUsageIntensity.High
+    #     case BuildingType.ACCOMODATION_HOTEL_LARGE.name:
+    #         usage_intensity = LiftUsageIntensity.High
+    #     case BuildingType.ACCOMODATION_HOTEL_SMALL.name:
+    #         usage_intensity = LiftUsageIntensity.Medium
+    #     case BuildingType.LABORATORY.name:
+    #         usage_intensity = LiftUsageIntensity.Low
+    #     case BuildingType.COMMERCIAL_OFFICE_LARGE.name:
+    #         usage_intensity = LiftUsageIntensity.VeryHigh
+    #     case BuildingType.COMMERCIAL_OFFICE_MEDIUM.name:
+    #         usage_intensity = LiftUsageIntensity.High
+    #     case BuildingType.COMMERCIAL_OFFICE_SMALL.name:
+    #         usage_intensity = LiftUsageIntensity.Medium
+    #     case BuildingType.HEALTHCARE_OUTPATIENT.name:
+    #         usage_intensity = LiftUsageIntensity.High
+    #     case BuildingType.COMMERCIAL_RESTAURANT_FULL_SERVICE.name:
+    #         usage_intensity = LiftUsageIntensity.Low
+    #     case BuildingType.COMMERCIAL_RESTAURANT_QUICK_SERVICE.name:
+    #         usage_intensity = LiftUsageIntensity.VeryLow
+    #     case BuildingType.COMMERCIAL_RETAIL.name:
+    #         usage_intensity = LiftUsageIntensity.Medium
+    #     case BuildingType.EDUCATION_SCHOOL_PRIMARY.name:
+    #         usage_intensity = LiftUsageIntensity.VeryLow
+    #     case BuildingType.EDUCATION_SCHOOL_SECONDARY.name:
+    #         usage_intensity = LiftUsageIntensity.Low
+    #     case BuildingType.COMMERCIAL_STRIP_MALL.name:
+    #         usage_intensity = LiftUsageIntensity.Medium
+    #     case BuildingType.COMMERCIAL_SUPERMARKET.name:
+    #         usage_intensity = LiftUsageIntensity.Low
+    #     case BuildingType.INDUSTRY_WAREHOUSE.name:
+    #         usage_intensity = LiftUsageIntensity.VeryLow
+    #     case BuildingType.ACCOMODATION_HOUSE_LOWRISE.name:
+    #         usage_intensity = LiftUsageIntensity.VeryLow
+    #     case BuildingType.CIVIC_CONCERT_HALL.name:
+    #         usage_intensity = LiftUsageIntensity.Medium
+    #     case BuildingType.PHYSICAL_EXERCISE.name:
+    #         usage_intensity = LiftUsageIntensity.Low
+    #     case BuildingType.PHYSICAL_EVENTS.name:
+    #         usage_intensity = LiftUsageIntensity.Medium
+    #     case BuildingType.RELIGIOUS.name:
+    #         usage_intensity = LiftUsageIntensity.Medium
+    #     case BuildingType.INDUSTRY_LIGHT.name:
+    #         usage_intensity = LiftUsageIntensity.VeryLow
+    #     case BuildingType.PARKING.name:
+    #         usage_intensity = LiftUsageIntensity.Low
+    #     case BuildingType.CIVIC_LIBRARY.name:
+    #         usage_intensity = LiftUsageIntensity.Low
+    #     case BuildingType.EXHIBITION.name:
+    #         usage_intensity = LiftUsageIntensity.Medium
+    #     case _:
+    #         raise ValueError(
+    #             f"No default lift usage intensity is available for {building_type}."
+    #         )
+    # return float(usage_intensity)

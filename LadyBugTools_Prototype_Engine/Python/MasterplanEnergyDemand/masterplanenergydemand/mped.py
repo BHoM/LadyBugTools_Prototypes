@@ -46,6 +46,7 @@ class Masterplan(BaseModel):
     def __repr__(self) -> str:
         return self.__str__()
 
+    # pylint: disable=no-self-argument
     @root_validator(pre=False)
     def validate_atts(cls, values):
         """Validate the attributes."""
@@ -55,10 +56,11 @@ class Masterplan(BaseModel):
         valid_string(identifier)
 
         return values
+    # pylint: enable=no-self-argument
 
     @classmethod
     def from_excel(
-        cls, excel_file: Path, sheet_name: str, use_defaults: bool = True
+        cls, excel_file: Path, sheet_name: str, use_defaults: bool = True, parallel: bool = True
     ) -> "Masterplan":
         """Create a masterplan from an Excel file."""
 
@@ -84,26 +86,31 @@ class Masterplan(BaseModel):
         # if number of columns is less than 2, raise an error
         if len(df.columns) < 2:
             raise ValueError(f"Excel file {excel_file} does not have enough columns.")
+        
+        # remove the units columns
+        df = df.drop(columns=[1])
+        df.columns = range(len(df.columns))
 
-        # if each column doesnt have the same epw_file value, raise an error
-        epw_file = Path(df[2]["epw_file"])
+        # check all typologies share the same EPW file
+        epw_file = Path(df[0]["epw_file"])
         for n, (_, s) in enumerate(df.items()):
-            if n == 0:
-                continue
             if Path(s["epw_file"]) != epw_file:
                 raise ValueError(
                     f"EPW file for {s['identifier']} does not match the file used for the rest of the masterplan ({epw_file})."
                 )
+        
+        # overwrite the masterplan_identifier value with the name of this case
+        df.loc[df.index == "masterplan_identifier"] = [[sheet_name] * len(df.columns)]
 
         # Get the typologies
-        if len(df.columns) > 3:
+        if (len(df.columns) > 3) and parallel:
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 futures = []
                 for n, (_, s) in enumerate(df.items()):
                     if n == 0:
                         continue
                     futures.append(
-                        executor.submit(Typology.from_dict, s.to_dict(), use_defaults)
+                        executor.submit(Typology.from_series, s, use_defaults)
                     )
                 typologies = [future.result() for future in futures]
         else:
@@ -112,7 +119,7 @@ class Masterplan(BaseModel):
                 if n == 0:
                     continue
                 typologies.append(
-                    Typology.from_dict(s.to_dict(), use_defaults=use_defaults)
+                    Typology.from_series(s, use_defaults=use_defaults)
                 )
 
         obj = cls(identifier=sheet_name, typologies=typologies)
@@ -171,7 +178,7 @@ class Masterplan(BaseModel):
                 typ._number_of_buildings() for typ in self.typologies
             ]
             df["max_occupants_per_building"] = [
-                typ.occupant_density * typ.typical_building_gfa
+                typ.occupant_density * typ.typical_gfa
                 for typ in self.typologies
             ]
             df = df.T
@@ -245,9 +252,9 @@ class Masterplan(BaseModel):
         typologies = copy.copy(self.typologies)
 
         # remove typologies that already have results
-        for i in self.typologies:
-            if i._results_exist(directory=self.simulation_directory):
-                typologies.remove(i)
+        for typology in self.typologies:
+            if typology._sql_file_exists():
+                typologies.remove(typology)
 
         if len(typologies) == 0:
             return None
@@ -256,10 +263,9 @@ class Masterplan(BaseModel):
         with concurrent.futures.ProcessPoolExecutor() as executor:
             futures = [
                 executor.submit(
-                    obj._simulate,
-                    directory,
+                    typology.run_all,
                 )
-                for obj in self.typologies
+                for typology in self.typologies
             ]
             _ = [future.result() for future in futures]
 
@@ -548,23 +554,30 @@ class Masterplan(BaseModel):
     #         plt.close(fig)
 
 
-def create_all_typologies(epw_file: Path | str) -> Masterplan:
+def create_all_typologies(epw_file: Path | str, masterplan_identifier: str = "AllTypologies") -> Masterplan:
 
-    def run(bt: BuildingType, vt: Vintage, epw_file: Path) -> Typology:
+    def run(bt: BuildingType, epw_file: Path) -> Typology:
         return Typology.from_building_type(
             building_type=bt,
             total_area=1000,
             epw_file=epw_file,
-            identifier=f"{bt.value}.{vt.value}",
-            vintage=vt,
-            rotation=0,
-            terrain=TerrainType.URBAN,
+            masterplan_identifier=masterplan_identifier,
         )
 
-    iterations = product(*[BuildingType, Vintage, [epw_file]])
-
-    # create all combinations of BuildingType and Vintage
+    iterations = product(*[BuildingType, [epw_file]])
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        results = list(tqdm(executor.map(run, *iterations), total=len(iterations)))
+        futures = [
+            executor.submit(
+                run,
+                typ,
+                e,
+            )
+            for typ, e in iterations
+        ]
+    typologies = [future.result() for future in futures]
 
-    # return Masterplan(identifier="AllTypologies", typologies=typologies)
+    # # create all combinations of BuildingType and Vintage
+    # with concurrent.futures.ThreadPoolExecutor() as executor:
+    #     results = executor.map(run, *iterations)
+
+    return Masterplan(identifier=masterplan_identifier, typologies=typologies)

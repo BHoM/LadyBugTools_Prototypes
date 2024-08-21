@@ -13,12 +13,15 @@ from honeybee.model import Model, Room
 from honeybee_energy.construction.opaque import OpaqueConstruction
 from honeybee_energy.hvac.idealair import IdealAirSystem
 from honeybee_energy.material.opaque import EnergyMaterial
+from honeybee_energy.programtype import ProgramType
 from honeybee_energy.result.eui import eui_from_sql
 from honeybee_energy.result.loadbalance import LoadBalance
-from ladybug.analysisperiod import AnalysisPeriod
-from ladybug.datacollection import (DailyCollection,
+from ladybug.datacollection import (AnalysisPeriod, BaseCollection, Header,
                                     HourlyContinuousCollection,
                                     MonthlyCollection)
+from ladybug.datatype import TYPESDICT
+from ladybug.datatype.fraction import Fraction
+from ladybug.datatype.generic import GenericType
 from ladybug.sql import SQLiteResult
 from ladybug_geometry.geometry2d import Vector2D
 from ladybug_geometry.geometry3d import Face3D, Vector3D
@@ -29,6 +32,12 @@ from .config import INDEX, SRI_DATA, colour_defaults, logger
 
 # pylint: enable=E0401
 # endregion: IMPORTS
+
+# CUSTOM DATA TYPES #
+Occupants = GenericType(name="Occupants", unit="people", min=0, abbreviation="Occ")
+OccupantDensity = GenericType(
+    name="Occupant Density", unit="people/m2", min=0, abbreviation="Occ/m2"
+)
 
 
 def get_color(variable: str) -> str:
@@ -615,13 +624,126 @@ def describe_analysis_period(
     return base_str
 
 
-def collection_to_series(data_collection: HourlyContinuousCollection) -> pd.Series:
-    """Convert a Ladybug hourly continuous collection to a Pandas Series."""
+def header_to_string(header: Header) -> str:
+    """Convert a Ladybug header object into a string.
+
+    Args:
+        header (Header):
+            A Ladybug header object.
+
+    Returns:
+        str:
+            A Ladybug header string."""
+
+    return f"{header.data_type} ({header.unit})"
+
+
+def collection_to_series(
+    collection: HourlyContinuousCollection, name: str = None
+) -> pd.Series:
+    """Convert a Ladybug hourlyContinuousCollection object into a Pandas Series object.
+
+    Args:
+        collection (BaseCollection):
+            Ladybug data collection object.
+        name (str, optional):
+            The name of the resulting Pandas Series object. Defaults to None,
+            which uses the collection datatype.
+
+    Returns:
+        pd.Series:
+            A Pandas Series object.
+    """
+
+    index = pd.to_datetime(collection.header.analysis_period.datetimes)
+    if len(collection.values) == 12:
+        index = pd.date_range(f"{index[0].year}-01-01", periods=12, freq="MS")
+
     return pd.Series(
-        data_collection.values,
-        index=INDEX,
-        name=f"{data_collection.header.data_type} ({data_collection.header.unit})",
+        data=collection.values,
+        index=index,
+        name=header_to_string(collection.header) if not name else name,
     )
+
+
+def header_from_string(string: str, is_leap_year: bool = False) -> Header:
+    """Convert a string into a Ladybug header object.
+
+    Args:
+        string (str):
+            A Ladybug header string.
+        is_leap_year (bool, optional):
+            A boolean to indicate whether the header is for a leap year. Default is False.
+
+    Returns:
+        Header:
+            A Ladybug header object."""
+
+    str_elements = string.split(" ")
+
+    if (len(str_elements) < 2) or ("(" not in string) or (")" not in string):
+        raise ValueError(
+            "The string to be converted into a LB Header must be in the format 'variable (unit)'"
+        )
+
+    str_elements = string.split(" ")
+    unit = str_elements[-1].replace("(", "").replace(")", "")
+    data_type = " ".join(str_elements[:-1])
+
+    try:
+        data_type = TYPESDICT[data_type.replace(" ", "")]()
+    except KeyError:
+        data_type = GenericType(name=data_type, unit=unit)
+
+    return Header(
+        data_type=data_type,
+        unit=unit,
+        analysis_period=AnalysisPeriod(is_leap_year=is_leap_year),
+    )
+
+
+def collection_from_series(series: pd.Series) -> BaseCollection:
+    """Convert a Pandas Series object into a Ladybug BaseCollection-like object.
+
+    Args:
+        series (pd.Series): A Pandas Series object.
+
+    Returns:
+        BaseCollection: A Ladybug BaseCollection-like object.
+    """
+
+    header = header_from_string(
+        series.name, is_leap_year=series.index.is_leap_year.any()
+    )
+    header.metadata["source"] = "From custom pd.Series"
+
+    freq = pd.infer_freq(series.index)
+    if freq in ["H", "h"]:
+        if series.index.is_leap_year.any():
+            if len(series.index) != 8784:
+                raise ValueError(
+                    "The number of values in the series must be 8784 for leap years."
+                )
+        else:
+            if len(series.index) != 8760:
+                raise ValueError("The series must have 8760 rows for non-leap years.")
+
+        return HourlyContinuousCollection(
+            header=header,
+            values=series.values,
+        )
+
+    if freq in ["M", "MS"]:
+        if len(series.index) != 12:
+            raise ValueError("The series must have 12 rows for months.")
+
+        return MonthlyCollection(
+            header=header,
+            values=series.values.tolist(),
+            datetimes=range(1, 13),
+        )
+
+    raise ValueError("The series must be hourly or monthly.")
 
 
 def simulate_model(
@@ -639,6 +761,42 @@ def simulate_model(
     """
 
     raise NotImplementedError("Not yet implemented")
+
+
+def aggregate_collection(
+    collections: list[HourlyContinuousCollection], agg: str
+) -> HourlyContinuousCollection:
+    """Apply an aggregation to a set of hourly continuous collections.
+
+    Args:
+        collections (list[HourlyContinuousCollection]): A list of hourly continuous collections.
+        agg (str): The aggregation method to apply. One of ["mean", "sum", "max", "min", "median"].
+
+    Returns:
+        HourlyContinuousCollection: The aggregated collection.
+    """
+
+    if not isinstance(collections, (list, tuple)):
+        raise ValueError(
+            "Collections must be an enumerable of HourlyContinuousCollection objects."
+        )
+
+    if len(collections) == 0:
+        raise ValueError("No collections provided for aggregation.")
+
+    if len(collections) == 1:
+        return collections[0]
+
+    if not len(set(col.header.unit for col in collections)) == 1:
+        raise ValueError("All collections must have the same datatype for aggregation.")
+
+    if not len(set(len(col) for col in collections)) == 1:
+        raise ValueError("All collections must have the same length for aggregation.")
+
+    # check collections are aligned
+    df = pd.concat([collection_to_series(col) for col in collections], axis=1)
+
+    return collection_from_series(df.agg(agg, axis=1).rename(df.columns[0]))
 
 
 def subtract_loss_from_gain(gain_load, loss_load):
@@ -1154,3 +1312,71 @@ def suspendlogging(func):
             logger.setLevel(previousloglevel)
 
     return inner
+
+
+def occupancy_schedule_from_program(program: ProgramType) -> HourlyContinuousCollection:
+    """Return the occupancy schedule from a program, giving a collection of
+    zeros if no occupancy is found.
+
+    Args:
+        program (ProgramType): A honeybee_energy program type.
+
+    Returns:
+        HourlyContinuousCollection: The occupancy schedule.
+    """
+    if program.people is not None:
+        return program.people.occupancy_schedule.data_collection()
+
+    return HourlyContinuousCollection(
+        header=Header(
+            data_type=Fraction(),
+            unit="fraction",
+            analysis_period=AnalysisPeriod(),
+            metadata={"schedule": "Building_People_Occ Schedule"},
+        ),
+        values=list(np.zeros(8760)),
+    )
+
+
+def occupancy_from_program(
+    program: ProgramType, area: float = None
+) -> HourlyContinuousCollection:
+    """Return the occupancy from a program, giving a value of 0 if no occupancy is found.
+
+    Args:
+        program (ProgramType): A honeybee_energy program type.
+        area (float, optional): The area of the program. Defaults to None which returns people/m2.
+
+    Returns:
+        HourlyContinuousCollection: The occupancy schedule, either in people or people/m2.
+    """
+
+    if area is not None:
+        if area <= 0:
+            raise ValueError("area must be greater than 0.")
+
+    # get the occupancy schedule
+    schedule = occupancy_schedule_from_program(program=program)
+
+    if (schedule.total > 0) and (program.people.people_per_area > 0):
+        # calculate the occupancy from the schedule and the people per area
+        values = np.array((schedule * program.people.people_per_area).values)
+    else:
+        values = np.array(schedule.values)
+
+    if area is not None:
+        # calculate the occupancy from the schedule and the area
+        values = values * area
+        header = Header(
+            data_type=Occupants,
+            unit="people",
+            analysis_period=AnalysisPeriod(),
+        )
+    else:
+        header = Header(
+            data_type=OccupantDensity,
+            unit="people/m2",
+            analysis_period=AnalysisPeriod(),
+        )
+
+    return HourlyContinuousCollection(header=header, values=list(values))

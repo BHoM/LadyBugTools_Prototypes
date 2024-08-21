@@ -2,7 +2,6 @@
 
 # pylint: disable=E0401
 import calendar
-import logging
 import warnings
 
 import matplotlib.pyplot as plt
