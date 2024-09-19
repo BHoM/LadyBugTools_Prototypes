@@ -87,7 +87,7 @@ class Masterplan(BaseModel):
         if len(df.columns) < 2:
             raise ValueError(f"Excel file {excel_file} does not have enough columns.")
         
-        # remove the units columns
+        # remove the units column
         df = df.drop(columns=[1])
         df.columns = range(len(df.columns))
 
@@ -107,8 +107,8 @@ class Masterplan(BaseModel):
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 futures = []
                 for n, (_, s) in enumerate(df.items()):
-                    if n == 0:
-                        continue
+                    # if n == 0:
+                    #     continue
                     futures.append(
                         executor.submit(Typology.from_series, s, use_defaults)
                     )
@@ -116,8 +116,8 @@ class Masterplan(BaseModel):
         else:
             typologies: list[Typology] = []
             for n, (_, s) in enumerate(df.items()):
-                if n == 0:
-                    continue
+                # if n == 0:
+                #     continue
                 typologies.append(
                     Typology.from_series(s, use_defaults=use_defaults)
                 )
@@ -202,6 +202,19 @@ class Masterplan(BaseModel):
             typology.identifier: typology.total_area for typology in self.typologies
         }
 
+    def estimate_number_of_streetlights(self) -> int:
+        """Estimate the number of streetlights in the masterplan."""
+        raise NotImplementedError("This method is not yet implemented.")
+    
+    def estimate_streetlight_energy_consumption(self) -> pd.Series:
+        """Estimate the energy consumption of streetlights in the masterplan."""
+
+        # get hourly daylight data
+        np.array(self.epw.global_horizontal_illuminance.values)
+        sun_up_hours = sum(np.array(self.epw.global_horizontal_radiation.values) > 0)
+
+        raise NotImplementedError("This method is not yet implemented.")
+    
     def eui(self) -> pd.DataFrame:
         """Get the EUI for each of the typologies.
 
@@ -288,9 +301,8 @@ class Masterplan(BaseModel):
         df = pd.concat(
             [
                 typ.energy_consumption(
-                    directory=self.simulation_directory,
                     normalised=False,
-                    single_building=False,
+                    as_dataframe=True,
                 )
                 for typ in self.typologies
             ],
@@ -347,6 +359,7 @@ class Masterplan(BaseModel):
         rule: str = "MS",
         label: bool = True,
         legend: bool = True,
+        y_units: str = "kWh",
     ) -> plt.Axes:
         """Plot the monthly energy consumption of the Masterplan."""
 
@@ -354,10 +367,15 @@ class Masterplan(BaseModel):
 
         df = self.energy_consumption(combine_buildings=True)
 
+        if y_units == "MWh":
+            df /= 1000
+        elif y_units != "kWh":
+            raise NotImplementedError(f"Units {y_units} are not yet implemented.")
+
         if ax is None:
             ax = plt.gca()
 
-        ax = stacked_bar(df=df, ax=ax, rule=rule, label=label, legend=legend)
+        ax = stacked_bar(df=df, ax=ax, rule=rule, label=label, legend=legend, units=y_units)
 
         _ = ax.set_title(f"{self.identifier} - Energy Consumption")
 
@@ -517,6 +535,33 @@ class Masterplan(BaseModel):
 
         return ax
 
+    def plot_gfa_vs_energy(self, ax: plt.Axes = None, log_axes: bool = True) -> plt.Axes:
+        """Plot the GFA vs Energy Consumption for the Masterplan."""
+
+        if ax is None:
+            ax = plt.gca()
+
+        adf = self.energy_consumption(combine_buildings=False)
+        ss = pd.concat([
+            adf.T.groupby(adf.columns.get_level_values(0)).sum().T.sum(),
+            pd.Series(self.gfa_table),
+        ], axis=1, keys=["Annual energy consumption (kWh)", "Total GFA (m2)"])
+
+        for idx, row in ss.iterrows():
+            ax.scatter(row[0], row[1])
+            ax.text(row[0], row[1], idx)
+        if log_axes:
+            ax.set_yscale("log")
+            ax.set_xscale("log")
+        ax.set_ylabel("Total GFA (m$^2$)")
+        ax.set_xlabel("Annual energy consumption (kWh)")
+        ax.grid(which='major', color='k', alpha=0.5)
+        ax.grid(which='minor', color='k', alpha=0.25)
+
+        _ = ax.set_title(f"{self.identifier} - GFA vs Energy Consumption")
+
+        return ax
+    
     # def run_everything(self) -> None:
     #     """Run all methods and return a DataFrame with all the data."""
         

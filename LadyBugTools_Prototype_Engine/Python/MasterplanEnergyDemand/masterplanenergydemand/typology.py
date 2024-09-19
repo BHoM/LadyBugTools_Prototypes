@@ -662,6 +662,9 @@ class Typology(BaseModel):
 
         epw = EPW(epw_file)
 
+        if isinstance(building_type, str):
+            building_type = BuildingType(building_type)
+
         if identifier is None:
             identifier = building_type.value
             logger.info(
@@ -673,9 +676,6 @@ class Typology(BaseModel):
             logger.info(
                 f"{__class__.__name__} - Using default masterplan_identifier: {masterplan_identifier}"
             )
-
-        if isinstance(building_type, str):
-            building_type = BuildingType(building_type)
 
         if vintage is None:
             vintage = Vintage.ASHRAE_901_2019
@@ -992,9 +992,7 @@ class Typology(BaseModel):
             Typology: The typology object.
         """
 
-        # TODO fix validation from Series here
         d = s.to_dict()
-        print(d)
 
         return cls.from_dict(d, use_defaults)
 

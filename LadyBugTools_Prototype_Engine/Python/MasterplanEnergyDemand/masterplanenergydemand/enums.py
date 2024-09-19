@@ -31,11 +31,11 @@ class BuildingType(Enum):
     """The type of building to simulate."""
 
     ACCOMODATION_APARTMENT_HIGHRISE = "HighriseApartment"
-    CIVIC_CONCERT_HALL = "ConcertHall"
     ACCOMODATION_APARTMENT_MIDRISE = "MidriseApartment"
     ACCOMODATION_HOTEL_LARGE = "LargeHotel"
     ACCOMODATION_HOTEL_SMALL = "SmallHotel"
     ACCOMODATION_HOUSE_LOWRISE = "ResidentialLowRise"
+    CIVIC_CONCERT_HALL = "ConcertHall"
     CIVIC_COURTHOUSE = "Courthouse"
     CIVIC_LIBRARY = "Library"
     COMMERCIAL_OFFICE_LARGE = "LargeOffice"
@@ -53,6 +53,7 @@ class BuildingType(Enum):
     EDUCATION_COLLEGE = "College"
     EDUCATION_SCHOOL_PRIMARY = "PrimarySchool"
     EDUCATION_SCHOOL_SECONDARY = "SecondarySchool"
+    EXHIBITION = "Exhibition"
     HEALTHCARE_HOSPITAL = "Hospital"
     HEALTHCARE_OUTPATIENT = "Outpatient"
     INDUSTRY_LIGHT = "LightIndustry"
@@ -62,7 +63,6 @@ class BuildingType(Enum):
     PHYSICAL_EVENTS = "PhysicalFitnessEvents"
     PHYSICAL_EXERCISE = "PhysicalFitnessExercise"
     RELIGIOUS = "Religious"
-    EXHIBITION = "Exhibition"
     UTILITY = "Utility"
 
 
@@ -1030,13 +1030,13 @@ def default_program_type(building_type: BuildingType) -> ProgramType:
             # also including a minimal similar predefined program to avoid the FIXME above
             temp_program = building_program_type_by_identifier("SmallOffice")
             bld_mix_dict = {
-                temp_program: 0.011,
-                program_type_by_identifier("2019::Courthouse::Courtroom"): 0.4620950042777964,
-                program_type_by_identifier("2019::Courthouse::Storage"): 0.044909533906186066,
-                program_type_by_identifier("2019::Courthouse::Office"): 0.08626901759476249,
-                program_type_by_identifier("2019::Courthouse::Utility"): 0.15595357660975337,
-                program_type_by_identifier("2019::Courthouse::Corridor"): 0.16172860171855818,
-                program_type_by_identifier("2019::Courthouse::Restrooms"): 0.07004426589294349
+                temp_program: 0.010090817356205855,
+                program_type_by_identifier("2019::Courthouse::Courtroom"): 0.4662916289382406,
+                program_type_by_identifier("2019::Courthouse::Storage"): 0.04531739041996576,
+                program_type_by_identifier("2019::Courthouse::Office"): 0.08705249000480575,
+                program_type_by_identifier("2019::Courthouse::Utility"): 0.15736990576160786,
+                program_type_by_identifier("2019::Courthouse::Corridor"): 0.16319737812165308,
+                program_type_by_identifier("2019::Courthouse::Restrooms"): 0.07068038939752119,
             }
             program = ProgramType.average("LightIndustry", bld_mix_dict.keys(), bld_mix_dict.values())
             program.lock()
