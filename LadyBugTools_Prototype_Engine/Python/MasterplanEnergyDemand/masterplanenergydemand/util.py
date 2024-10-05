@@ -956,6 +956,7 @@ def room_energy_result(_sql: Path) -> list[list[HourlyContinuousCollection]]:
     infiltration_load = []
     if len(infil_gain) == len(infil_loss):
         infiltration_load = subtract_loss_from_gain(infil_gain, infil_loss)
+    mech_vent_load = []
     if len(vent_gain) == len(vent_loss) == len(cooling) == len(heating):
         mech_vent_loss = subtract_loss_from_gain(heating, vent_loss)
         mech_vent_gain = subtract_loss_from_gain(cooling, vent_gain)
@@ -1287,6 +1288,67 @@ def load_balance(
         norm_bal_stor = load_bal_obj.load_balance_terms(True, True)
 
     return balance, balance_stor, norm_bal, norm_bal_stor
+
+
+def load_balance_from_sql(_rooms_model: Model, _sql: Path, as_dataframe: bool = True) -> list[HourlyContinuousCollection] | pd.DataFrame:
+    
+    # get the rooms results
+    (
+        cooling, 
+        heating, 
+        lighting, 
+        electric_equip, 
+        gas_equip, 
+        process, 
+        hot_water, 
+        fan_electric, 
+        pump_electric, 
+        people_gain, 
+        solar_gain, 
+        infiltration_load, 
+        mech_vent_load, 
+        nat_vent_load,
+    ) = room_energy_result(_sql)
+
+    # get face results
+    (
+        face_indoor_temp, 
+        face_outdoor_temp, 
+        face_energy_flow, 
+    ) = face_result(_sql=_sql)
+    
+    # run the load balance
+    (
+        balance, 
+        balance_stor, 
+        norm_bal, 
+        norm_bal_stor, 
+    ) = load_balance(
+        _rooms_model=_rooms_model,
+        cooling_=cooling,
+        heating_=heating,
+        lighting_=lighting,
+        electric_equip_=electric_equip,
+        gas_equip_=gas_equip,
+        process_=process,
+        hot_water_=hot_water,
+        people_gain_=people_gain,
+        solar_gain_=solar_gain,
+        infiltration_load_=infiltration_load,
+        mech_vent_load_=mech_vent_load,
+        nat_vent_load_=nat_vent_load,
+        face_energy_flow_=face_energy_flow,
+    )
+
+    if as_dataframe:
+        return pd.concat([collection_to_series(col) for col in balance], axis=1)
+    
+    return (
+        balance, 
+        balance_stor, 
+        norm_bal, 
+        norm_bal_stor, 
+    )
 
 
 def annual_eui(_sql) -> pd.Series:

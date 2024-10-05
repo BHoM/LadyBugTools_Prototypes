@@ -1,7 +1,7 @@
 """Enums representing constants or symbolic values that have a clear and fixed 
 set of options."""
 
-# pylint: disable E1101
+# pylint: disable=E1101
 
 # region: IMPORTS
 # pylint: disable=E0401
